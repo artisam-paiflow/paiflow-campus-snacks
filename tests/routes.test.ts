@@ -37,9 +37,7 @@ it("refuses malformed recipients and accepts documented payout bodies", async ()
     ),
   ).toEqual({ from, amount: "1", recipient: from, nodeId: "pay" });
 });
-it("blocks demo payout and rejects invalid cursors before upstream calls", async () => {
-  const { POST } = await import("@/app/api/payout/route");
-  expect((await POST(request({ signedXdr: "signed" }))).status).toBe(422);
+it("rejects invalid event cursors before upstream calls", async () => {
   const { GET } = await import("@/app/api/events/route");
   expect(
     (await GET(new Request("http://localhost/api/events?cursor="))).status,

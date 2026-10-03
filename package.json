@@ -1,5 +1,5 @@
 {
-  "name": "paiflow-hackathon-starter",
+  "name": "paiflow-campus-snacks",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.4.1",
@@ -11,7 +11,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:bundles": "node scripts/check-browser-bundles.mjs"
   },
   "dependencies": {
     "next": "^15.5.25",

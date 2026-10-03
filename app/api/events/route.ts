@@ -1,5 +1,6 @@
 import { listEvents, publicConfig } from "@/lib/paiflow";
 import { handle, InputError } from "@/lib/http";
+import { requireStore } from "@/lib/checkout";
 export async function GET(request: Request) {
   return handle(async () => {
     const params = new URL(request.url).searchParams;
@@ -9,6 +10,7 @@ export async function GET(request: Request) {
       (cursor !== null && (!cursor || cursor.length > 512))
     )
       throw new InputError("Invalid cursor query.");
+    requireStore();
     return {
       ...(await listEvents({ cursor: cursor ?? undefined })),
       ...publicConfig(),

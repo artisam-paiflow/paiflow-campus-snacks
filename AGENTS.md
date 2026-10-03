@@ -4,5 +4,6 @@ Read `llms.md` first; it is the copied hackathon API and product guide. This is 
 - Never handle a customer's secret key. Freighter signs XDR in the browser, using the prepared network passphrase. Refuse mainnet.
 - Use `lib/amount.ts` for money. Amounts are decimal/stroops strings with bigint arithmetic, never floating-point numbers.
 - Keep signed envelopes for PENDING and uncertain submission errors; retry that same envelope, never duplicate a payment.
-- The payout proxy is unauthenticated. Add your app's authorisation before exposing it publicly. Add authorisation before exposing `releaseEarly`; this starter has no release route.
+- This sample uses a fixed 90/10 USDC Split. The starter's payout proxy is removed; keep recipients in the deployed flow. Add your app's authorisation before introducing recipient mutations or `releaseEarly`; this sample has no release route.
+- Require the stand's deployment ID and API token before calling Paiflow. Do not fall back to the starter's shared XLM demo. Accept menu item IDs and calculate prices on the server, never accept browser prices.
 - Run `pnpm typecheck`, `pnpm build && pnpm test` after edits. Check `.next/static` for credential leaks.

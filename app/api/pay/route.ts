@@ -1,8 +1,9 @@
 import { prepareExecute, submitExecute } from "@/lib/paiflow";
-import { handle, paymentBody } from "@/lib/http";
+import { checkoutBody, handle, requireStore } from "@/lib/checkout";
 export async function POST(request: Request) {
   return handle(async () => {
-    const body = await paymentBody(request);
+    requireStore();
+    const body = await checkoutBody(request);
     return "signedXdr" in body ? submitExecute(body) : prepareExecute(body);
   });
 }
