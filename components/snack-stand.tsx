@@ -5,6 +5,7 @@ import { MENU, menuItem, priceBreakdown } from "@/lib/menu";
 import type { MenuItemId } from "@/lib/menu";
 import type { EventItem, EventPage, Prepared, Submitted } from "@/lib/paiflow";
 import { connectWallet, refreshWallet, signPrepared } from "@/lib/wallet";
+import { ContributionJars } from "@/components/contribution-jars";
 import { SnackArt } from "@/components/snack-art";
 
 type Config = { ready: boolean; deploymentUrl: string | null };
@@ -49,6 +50,7 @@ export function SnackStand({ config }: { config: Config }) {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [error, setError] = useState("");
   const [feedError, setFeedError] = useState("");
+  const [feedLoaded, setFeedLoaded] = useState(false);
   const [phase, setPhase] = useState("");
   const [walletBusy, setWalletBusy] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -102,6 +104,7 @@ export function SnackStand({ config }: { config: Config }) {
             (a, b) => b.ledger - a.ledger || b.eventId.localeCompare(a.eventId),
           ),
         );
+        if (!page.hasMore) setFeedLoaded(true);
         setFeedError("");
       } catch (cause) {
         if (!cancelled)
@@ -202,9 +205,13 @@ export function SnackStand({ config }: { config: Config }) {
     <main>
       <header className="topbar">
         <a className="brand" href="/" aria-label="Campus Snacks home">
-          <span className="brand-mark" aria-hidden="true">
-            cs.
-          </span>{" "}
+          <img
+            className="brand-mark"
+            src="/snack-logo.svg"
+            width={41}
+            height={41}
+            alt=""
+          />{" "}
           campus snacks
         </a>
         <div className="header-meta">
@@ -292,9 +299,7 @@ export function SnackStand({ config }: { config: Config }) {
                     <span className="selection-dot" aria-hidden="true" />
                   </div>
                   <p>{snack.description}</p>
-                  <strong>
-                    {snack.price} <span>USDC</span>
-                  </strong>
+                  <strong>${snack.price}</strong>
                 </div>
               </label>
             ))}
@@ -310,7 +315,7 @@ export function SnackStand({ config }: { config: Config }) {
           <h2 id="checkout-title">A little good, to go.</h2>
           <div className="order-line">
             <span>{item.name}</span>
-            <strong>{item.price} USDC</strong>
+            <strong>${item.price}</strong>
           </div>
           <div className="split-preview">
             <p>Where your payment goes</p>
@@ -318,20 +323,18 @@ export function SnackStand({ config }: { config: Config }) {
               <span>
                 Campus vendor <small>90%</small>
               </span>
-              <strong>{split.vendor} USDC</strong>
+              <strong>${split.vendor}</strong>
             </div>
             <div>
               <span>
                 Student org <small>10%</small>
               </span>
-              <strong>{split.studentOrg} USDC</strong>
+              <strong>${split.studentOrg}</strong>
             </div>
           </div>
           <div className="total-line">
             <span>Total</span>
-            <strong>
-              {item.price} <small>USDC</small>
-            </strong>
+            <strong>${item.price}</strong>
           </div>
           <div className="wallet-section">
             <span className="wallet-label">YOUR WALLET</span>
@@ -364,7 +367,7 @@ export function SnackStand({ config }: { config: Config }) {
             }
             onClick={() => void pay()}
           >
-            {phase || `Buy snack · ${item.price} USDC`}{" "}
+            {phase || `Buy snack · $${item.price}`}{" "}
             <span aria-hidden="true">→</span>
           </button>
           <p className="checkout-note">
@@ -402,7 +405,7 @@ export function SnackStand({ config }: { config: Config }) {
                     : "Waiting for confirmation."}
               </strong>
               <p>
-                {receiptItem?.name} · {receiptItem?.price} USDC
+                {receiptItem?.name} · ${receiptItem?.price}
               </p>
               <a
                 href={explorer(receipt.txHash)}
@@ -427,7 +430,7 @@ export function SnackStand({ config }: { config: Config }) {
         <div className="section-heading">
           <div>
             <p className="eyebrow">FOLLOW THE MONEY</p>
-            <h2 id="activity-title">Campus activity</h2>
+            <h2 id="activity-title">Every snack supports both.</h2>
           </div>
           <span className="live-label">
             <span aria-hidden="true" />
@@ -435,70 +438,79 @@ export function SnackStand({ config }: { config: Config }) {
           </span>
         </div>
         <p className="activity-intro">
-          Payments and payouts from this stand’s deployment. Select a
-          transaction to see its on-chain details.
+          Watch campus contributions grow, one confirmed payment at a time.
         </p>
         {feedError && (
           <p role="alert" className="error-message">
             {feedError}
           </p>
         )}
-        {!events.length ? (
-          <div className="empty-activity">
-            <span aria-hidden="true">↗</span>
-            <div>
-              <strong>
-                {config.ready
-                  ? "Be the first study break."
-                  : "Your first payment will show up here."}
-              </strong>
-              <p>
-                Once confirmed, payment and payout activity appears here. The
-                feed can take a moment to catch up.
-              </p>
+        <ContributionJars
+          events={events}
+          loading={config.ready && !feedLoaded}
+          ready={config.ready}
+        />
+        <details className="transaction-history">
+          <summary>View recent transactions</summary>
+          {!events.length ? (
+            <div className="empty-activity">
+              <span aria-hidden="true">↗</span>
+              <div>
+                <strong>
+                  {config.ready
+                    ? feedLoaded
+                      ? "Be the first study break."
+                      : "Loading campus activity…"
+                    : "Your first payment will show up here."}
+                </strong>
+                <p>
+                  Once confirmed, payment and payout activity appears here. The
+                  feed can take a moment to catch up.
+                </p>
+              </div>
             </div>
-          </div>
-        ) : (
-          <ol className="event-list">
-            {events.slice(0, 30).map((event) => (
-              <li
-                key={event.eventId}
-                className={
-                  receipt?.txHash === event.txHash ? "current-payment" : ""
-                }
-              >
-                <div className="event-icon" aria-hidden="true">
-                  {event.kind === "PAYOUT" ? "↗" : "↓"}
-                </div>
-                <div className="event-main">
-                  <strong>
-                    {event.kind === "RECEIVE"
-                      ? "Customer payment"
-                      : event.kind === "PAYOUT"
-                        ? "Payout recorded"
-                        : "Flow activity"}
-                  </strong>
-                  <time dateTime={event.occurredAt}>
-                    {new Date(event.occurredAt).toLocaleString("en-PH", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </time>
-                </div>
-                <a
-                  href={explorer(event.txHash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={`View ${event.kind.toLowerCase()} transaction ${short(event.txHash)}`}
+          ) : (
+            <ol className="event-list">
+              {events.slice(0, 30).map((event) => (
+                <li
+                  key={event.eventId}
+                  className={
+                    receipt?.txHash === event.txHash ? "current-payment" : ""
+                  }
                 >
-                  {short(event.txHash)} ↗
-                </a>
-              </li>
-            ))}
-          </ol>
-        )}
+                  <div className="event-icon" aria-hidden="true">
+                    {event.kind === "PAYOUT" ? "↗" : "↓"}
+                  </div>
+                  <div className="event-main">
+                    <strong>
+                      {event.kind === "RECEIVE"
+                        ? "Customer payment"
+                        : event.kind === "PAYOUT"
+                          ? "Payout recorded"
+                          : "Flow activity"}
+                    </strong>
+                    <time dateTime={event.occurredAt}>
+                      {new Date(event.occurredAt).toLocaleString("en-PH", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </time>
+                  </div>
+                  <a
+                    href={explorer(event.txHash)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`View ${event.kind.toLowerCase()} transaction ${short(event.txHash)}`}
+                  >
+                    {short(event.txHash)} ↗
+                  </a>
+                </li>
+              ))}
+            </ol>
+          )}
+        </details>
       </section>
 
       <footer>
