@@ -78,12 +78,8 @@ p {
   width: 41px;
   height: 41px;
   border-radius: 12px;
-  color: #172214;
-  background: var(--lime);
-  display: grid;
-  place-items: center;
-  font-size: 23px;
-  letter-spacing: -2px;
+  display: block;
+  flex-shrink: 0;
 }
 .header-meta {
   display: flex;
@@ -660,7 +656,6 @@ footer > span:first-child a {
   .brand-mark {
     width: 33px;
     height: 33px;
-    font-size: 21px;
   }
   .demo-label {
     display: none;
@@ -737,5 +732,207 @@ footer > span:first-child a {
     scroll-behavior: auto !important;
     animation: none !important;
     transition: none !important;
+  }
+}
+
+.contributions {
+  margin-top: 24px;
+  padding: 30px 28px 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+}
+.contribution-jars {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+.contribution-jar {
+  --coin: #e6b860;
+  --coin-border: #b77c31;
+  --coin-detail: #855923;
+  margin: 0;
+  min-width: 0;
+  text-align: center;
+  border-radius: 14px;
+  padding: 24px 18px;
+  background: radial-gradient(ellipse at 50% 70%, #bc903017, transparent 70%);
+  border: 1px solid #75603b;
+}
+.jar-student-org {
+  --coin: #c4e58c;
+  --coin-border: #83a64e;
+  --coin-detail: #4d702f;
+  border-color: #596a43;
+  background: radial-gradient(ellipse at 50% 70%, #b0d27617, transparent 70%);
+}
+.jar-heading h3 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.jar-share {
+  color: var(--coin);
+  font-size: 11px;
+}
+.jar-art {
+  position: relative;
+  max-width: 300px;
+  margin: 14px auto 0;
+}
+.jar-art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.jar-coin ellipse {
+  fill: var(--coin);
+  stroke: var(--coin-border);
+  stroke-width: 1.5;
+}
+.jar-coin .coin-rim {
+  fill: none;
+  stroke: var(--coin-detail);
+  stroke-width: 1;
+  opacity: 0.65;
+}
+.coin-mark {
+  fill: var(--coin-detail);
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.jar-total {
+  display: block;
+  font-size: clamp(22px, 3vw, 34px);
+  color: var(--coin);
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.jar-total small {
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.jar-total-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.jar-increment {
+  position: absolute;
+  inset: 0 0 auto;
+  color: var(--coin);
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0;
+  animation: contribution-pop 2.8s ease-out forwards;
+}
+.dropping-coin {
+  opacity: 0;
+  animation: coin-drop 900ms cubic-bezier(0.3, 0.05, 0.65, 1) forwards;
+}
+@keyframes coin-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-30px);
+  }
+  12% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(var(--drop-distance));
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(var(--drop-distance));
+  }
+}
+@keyframes contribution-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  15%,
+  65% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+.contribution-status {
+  text-align: center;
+  font-size: 12px;
+  margin: 24px 0 10px;
+}
+.jar-scale,
+.jar-note {
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+.transaction-history {
+  margin-top: 22px;
+}
+.transaction-history summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--lime);
+  font-size: 12px;
+  padding: 12px 0;
+}
+@media (max-width: 700px) {
+  .contributions {
+    padding: 18px 12px;
+  }
+  .contribution-jars {
+    gap: 10px;
+  }
+  .contribution-jar {
+    padding: 18px 6px;
+  }
+  .jar-heading h3 {
+    font-size: 14px;
+  }
+  .jar-share {
+    font-size: 9px;
+  }
+  .jar-total {
+    font-size: 23px;
+    letter-spacing: -0.5px;
+  }
+  .jar-total small {
+    display: block;
+    margin-top: 4px;
+    font-size: 10px;
+  }
+  .jar-increment {
+    font-size: 10px;
+  }
+  .jar-scale,
+  .jar-note {
+    font-size: 10px;
+  }
+  .event-list li {
+    padding: 16px 0;
+    gap: 10px;
+  }
+  .event-list a {
+    font-size: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jar-drops {
+    display: none;
+  }
+  .jar-increment {
+    animation: none;
+    display: none;
   }
 }

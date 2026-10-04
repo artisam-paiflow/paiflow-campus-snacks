@@ -18,6 +18,13 @@ export function fromStroops(stroops: string): string {
     throw new Error("Invalid stroops.");
   const value = BigInt(stroops);
   if (value > MAX) throw new Error("Amount exceeds i128.");
+  return formatStroops(stroops);
+}
+
+// Cumulative contributions may exceed the per-transaction i128 limit.
+export function formatStroops(stroops: string): string {
+  if (!/^\d+$/.test(stroops)) throw new Error("Invalid stroops.");
+  const value = BigInt(stroops);
   const fraction = (value % SCALE)
     .toString()
     .padStart(7, "0")

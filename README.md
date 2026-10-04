@@ -2,7 +2,9 @@
 
 A small hackathon sample built **from the [Paiflow starter template](https://github.com/artisam-paiflow/paiflow-hackathon-starter)**, using the same setup and integration path as participants.
 
-Pick one of three snacks, connect Freighter, and pay testnet USDC. One Paiflow deployment routes **90% to the campus vendor and 10% to the student organisation**. The app shows a split preview, a confirmed-payment receipt, and live on-chain activity.
+Pick one of three snacks, connect Freighter, and pay testnet USDC. One Paiflow deployment routes **90% to the campus vendor and 10% to the student organisation**. The app shows a split preview, a confirmed-payment receipt, and two live coin jars showing cumulative contributions to the vendor and student organisation.
+
+Live demo: [campus-snacks.up.railway.app](https://campus-snacks.up.railway.app). Prices and jar totals use `$` for testnet USDC.
 
 This is a sample shop: no real snacks, real-money prices, fulfilment, or persistent order database. Nothing is marked paid until Paiflow returns `SUCCESS`. `PENDING` and uncertain submissions keep the signed transaction for **Check again**.
 
@@ -58,8 +60,10 @@ The app's 90/10 display is a preview of this required flow setup. The sample can
 1. Choose **The study-break combo**: total 3.5 USDC; vendor preview 3.15; student org preview 0.35.
 2. Connect the customer wallet and choose **Buy snack**. Approve the transaction in Freighter.
 3. Wait for **Payment confirmed**, then follow **View transaction**. Confirm the vendor and student organisation payouts using the deployment's contract addresses and the on-chain transaction.
-4. Watch **Campus activity** for payment and payout events. The feed can lag; absence of an event is not proof that a transaction failed.
+4. Watch the **Campus Vendor** and **Student Org** coin jars fill after matching payment and payout events arrive. Each jar shows cumulative USDC received through this deployment, rather than its wallet balance. Both use a shared visual scale that expands as contributions grow; coins illustrate the totals. Expand **View recent transactions** for explorer links. The feed can lag; absence of an event is not proof that a transaction failed.
 5. To demonstrate a second customer, switch accounts in Freighter and select **Refresh wallet**.
+
+The percentage Split event contains configured shares, not transferred amounts. Jar totals pair one USDC deposit with one 90/10 Split payout in the same transaction and follow contract rounding (the last recipient receives the remainder). Events are deduplicated by `eventId`. Initial history fills the jars without replaying animations; only newly matched payouts trigger coin drops. Unmatched or unsupported activity stays visible in the transaction history and is excluded from the totals. Reduced-motion preferences disable the drops.
 
 If confirmation is pending or the server/network returns an uncertain error, keep the tab open and select **Check again**. It resubmits the exact signed envelope; do not prepare a second payment. The sample holds pending envelopes only in tab memory. On a reload, check the wallet/explorer before starting a new order. Cancelled signing creates no receipt; HTTP 200 with `FAILED` is still a failed payment.
 
@@ -68,7 +72,9 @@ A real end-to-end wallet/payout rehearsal is still required after configuring th
 ## What changed from the template
 
 - `app/page.tsx`: resolves only non-secret setup state on the server.
-- `components/snack-stand.tsx`: menu, checkout, receipt, and the starter's cursor-based live feed; no bearer token in browser calls.
+- `components/snack-stand.tsx`: menu, checkout, receipt, and expandable cursor-based transaction history; no bearer token in browser calls.
+- `components/contribution-jars.tsx` and `lib/jar-totals.ts`: animated coin jars and exact contributions from matched payment/payout events.
+- `public/snack-logo.svg`: shared cheese-bread header logo and tab icon, configured in `app/layout.tsx`.
 - `lib/menu.ts`: three menu items, exact stroop prices and split arithmetic using bigint. Edit this to change the menu.
 - `lib/checkout.ts` and `app/api/pay/route.ts`: accept `{ from, itemId }`; calculate the price on the server. Reject client-supplied prices, recipient overrides and unknown fields. Signed submission still uses `{ signedXdr }`.
 - `lib/paiflow.ts`, `lib/wallet.ts`, and `lib/amount.ts`: retain the starter's integration, mainnet refusal, and amount helpers. Paiflow calls stay in the server-only typed client; Freighter signs in the browser.
