@@ -61,6 +61,8 @@ Open http://localhost:3000. The menu works with empty configuration, but payment
 
 6. Install [Freighter](https://www.freighter.app/), select **Testnet**, and connect a funded customer wallet with the same USDC trustline and a testnet USDC balance. Adding a trustline does not provide a balance. Check the exact trustline and required balances in every wallet, including any organiser-provided fallback wallet. Friendbot supplies XLM, not USDC.
 
+**Testnet USDC funding:** after funding the wallet with XLM and adding the exact USDC trustline, open [Circle's testnet faucet](https://faucet.circle.com/), select **USDC** and **Stellar Testnet**, and enter the customer's public wallet address (`G…`). Confirm the USDC balance before testing payments. Repeat for any wallet that will fund a flow, and choose test amounts that fit the available balance. Friendbot supplies XLM, not USDC.
+
 The app's 90/10 display is a preview of this required flow setup. The sample cannot inspect your graph through the starter API: configuring a different deployment changes where money actually goes. Review the deployed recipients and shares, then rehearse the payout. API simulation checks account and trustline readiness before signing.
 
 ## Rehearse the demo on October 14
