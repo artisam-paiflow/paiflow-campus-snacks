@@ -2,7 +2,7 @@
 
 A small hackathon sample built **from the [Paiflow starter template](https://github.com/artisam-paiflow/paiflow-hackathon-starter)**, using the same setup and integration path as participants.
 
-Pick one of three snacks, connect Freighter, and pay testnet USDC. One Paiflow deployment routes **90% to the campus vendor and 10% to the student organisation**. The app shows a split preview, a confirmed-payment receipt, and two live coin jars showing cumulative contributions to the vendor and student organisation.
+Pick one of three snacks, connect Freighter, and pay testnet USDC. The sample represents one branch of a snack shop. One Paiflow deployment serves all customers of that branch and routes **90% to the campus vendor and 10% to the student organisation**. The app shows a split preview, a confirmed-payment receipt, and two live coin jars showing cumulative contributions to the vendor and student organisation.
 
 Live demo: [campus-snacks.up.railway.app](https://campus-snacks.up.railway.app). Prices and jar totals use `$` for testnet USDC.
 
@@ -12,7 +12,15 @@ This is a sample shop: no real snacks, real-money prices, fulfilment, or persist
 
 The unconfigured sample lets you browse the menu; payments unlock after setup.
 
-## Run locally
+## Hackathon timeline
+
+Choose your idea now. After October 12 onboarding, use the supplied starter to build your app's screens and features that don't involve payments, with payment features and the live feed disabled. Campus Snacks is a reference sample for the shared payment setup. Team account credentials, flow deployment, Paiflow API integration and live payment testing begin on **October 14**. The setup and rehearsal below are for that integration day.
+
+Prepare dedicated customer and recipient testnet wallets beforehand. Wallet setup, exact USDC trustlines and obtaining testnet XLM/USDC are allowed before integration. Wallet and funding support will be available on site on October 14, with ready-to-use wallets as a last resort.
+
+Organiser-provided fallback wallets are testnet-only; organisers retain copies of their keys. Never use them for real funds or import their keys into a wallet you use for real money. Never put wallet secret keys in the app.
+
+## Run locally on October 14
 
 Requires **Node 22** and **pnpm 10**. No additional dependencies were added to the starter.
 
@@ -27,7 +35,7 @@ pnpm dev
 
 Open http://localhost:3000. The menu works with empty configuration, but payments and event polling stay disabled until you configure the stand below. This sample deliberately does not use the starter's shared XLM swap demo, which would send funds through a different flow.
 
-## Set up the stand in Paiflow
+## Set up the stand in Paiflow on October 14
 
 1. Sign into [Paiflow testnet](https://beta.app.paiflow.xyz) with your team account.
 2. Build **On Receive (USDC) → Split (USDC)**, with percentage recipients in this order:
@@ -51,11 +59,11 @@ Open http://localhost:3000. The menu works with empty configuration, but payment
 
    Keep the token on the server. Never use `NEXT_PUBLIC_`, commit `.env.local`, or paste wallet secrets into the app. One deployment serves all this stand's customers.
 
-6. Install [Freighter](https://www.freighter.app/), select **Testnet**, and connect a funded customer wallet with the same USDC trustline and a testnet USDC balance. Adding a trustline does not provide a balance. Organiser-provided wallets should already be funded; check them first. Friendbot supplies XLM, not USDC.
+6. Install [Freighter](https://www.freighter.app/), select **Testnet**, and connect a funded customer wallet with the same USDC trustline and a testnet USDC balance. Adding a trustline does not provide a balance. Check the exact trustline and required balances in every wallet, including any organiser-provided fallback wallet. Friendbot supplies XLM, not USDC.
 
 The app's 90/10 display is a preview of this required flow setup. The sample cannot inspect your graph through the starter API: configuring a different deployment changes where money actually goes. Review the deployed recipients and shares, then rehearse the payout. API simulation checks account and trustline readiness before signing.
 
-## Rehearse the demo
+## Rehearse the demo on October 14
 
 1. Choose **The study-break combo**: total 3.5 USDC; vendor preview 3.15; student org preview 0.35.
 2. Connect the customer wallet and choose **Buy snack**. Approve the transaction in Freighter.
