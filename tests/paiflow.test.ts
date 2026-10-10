@@ -17,6 +17,7 @@ beforeEach(() => {
   vi.stubGlobal("__paiflowDemoCache", undefined);
   mockFetch.mockReset();
   vi.stubGlobal("fetch", mockFetch);
+  vi.stubEnv("PAIFLOW_MODE", "team");
   vi.stubEnv("PAIFLOW_BASE_URL", "http://localhost:3000");
   vi.stubEnv("PAIFLOW_API_TOKEN", token);
   vi.stubEnv("PAIFLOW_DEPLOYMENT_ID", deployment);
@@ -188,99 +189,58 @@ describe("typed Paiflow client (llms.md §4)", () => {
     expect(await response.text()).not.toContain(token);
   });
 });
-describe("demo cache", () => {
-  it("mints once across concurrent requests, reuses, refreshes two minutes before expiry", async () => {
-    vi.stubEnv("PAIFLOW_API_TOKEN", "");
-    vi.stubEnv("PAIFLOW_BASE_URL", "");
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
-    let mints = 0;
-    mockFetch.mockImplementation(async (url) => {
-      if (String(url).endsWith("demo-token")) {
-        mints++;
-        return ok(
-          {
-            deploymentId: deployment,
-            token,
-            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-          },
-          201,
-        );
+describe("integration guards", () => {
+  it.each([undefined, "prepare"])(
+    "does not call upstream in %s mode despite credentials",
+    async (mode) => {
+      vi.stubEnv("PAIFLOW_MODE", mode);
+      const api = await import("@/lib/paiflow");
+      expect(api.publicConfig()).toEqual({
+        mode: "prepare",
+        deploymentUrl: null,
+      });
+      for (const operation of [
+        () => api.prepareExecute({ from, amount: "1" }),
+        () => api.submitExecute({ signedXdr: "same" }),
+        () => api.listEvents(),
+        () => api.preparePayout({ from, amount: "1", recipient: from }),
+        () => api.releaseEarly(),
+      ]) {
+        await expect(operation()).rejects.toMatchObject({
+          status: 403,
+          api: { code: "PREPARATION_MODE" },
+        });
       }
-      return ok({ items: [], nextCursor: null, hasMore: false });
-    });
+      expect(mockFetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["demo", "invalid", ""])(
+    "rejects unsupported mode %s without demo minting",
+    async (mode) => {
+      vi.stubEnv("PAIFLOW_MODE", mode);
+      const api = await import("@/lib/paiflow");
+      expect(api.publicConfig()).toMatchObject({
+        mode: "disabled",
+        deploymentUrl: null,
+      });
+      await expect(api.listEvents()).rejects.toMatchObject({
+        status: 503,
+        api: { code: "CONFIGURATION" },
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    ["PAIFLOW_API_TOKEN", ""],
+    ["PAIFLOW_API_TOKEN", "not-a-token"],
+    ["PAIFLOW_DEPLOYMENT_ID", "not-a-uuid"],
+    ["PAIFLOW_BASE_URL", "https://user:password@example.com"],
+    ["PAIFLOW_BASE_URL", "https://example.com/path"],
+  ])("rejects invalid %s", async (name, value) => {
+    vi.stubEnv(name, value);
     const api = await import("@/lib/paiflow");
-    await Promise.all([api.listEvents(), api.listEvents(), api.listEvents()]);
-    expect(mints).toBe(1);
-    expect(api.publicConfig()).toEqual({ demoMode: true, deploymentUrl: null });
-    vi.advanceTimersByTime(57 * 60_000);
-    await api.listEvents();
-    expect(mints).toBe(1);
-    vi.advanceTimersByTime(60_000);
-    await api.listEvents();
-    expect(mints).toBe(2);
-    expect(String(mockFetch.mock.calls[0]![0])).toBe(
-      "https://beta.app.paiflow.xyz/api/v1/demo-token",
-    );
-  });
-  it("shares demo credentials across independently loaded route modules", async () => {
-    vi.stubEnv("PAIFLOW_API_TOKEN", "");
-    mockFetch
-      .mockResolvedValueOnce(
-        ok(
-          {
-            deploymentId: deployment,
-            token,
-            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-          },
-          201,
-        ),
-      )
-      .mockResolvedValueOnce(
-        ok({ items: [], nextCursor: null, hasMore: false }),
-      )
-      .mockResolvedValueOnce(ok(prepared));
-    const eventsModule = await import("@/lib/paiflow");
-    await eventsModule.listEvents();
-    vi.resetModules();
-    const payModule = await import("@/lib/paiflow");
-    await payModule.prepareExecute({ from, amount: "1" });
-    expect(
-      mockFetch.mock.calls.filter(([url]) =>
-        String(url).endsWith("demo-token"),
-      ),
-    ).toHaveLength(1);
-  });
-  it("preserves disabled-demo and rate-limit errors, recovers after mint failure", async () => {
-    vi.stubEnv("PAIFLOW_API_TOKEN", "");
-    mockFetch
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            error: { code: "FORBIDDEN", message: "Demo disabled" },
-          }),
-          { status: 403 },
-        ),
-      )
-      .mockResolvedValueOnce(
-        ok(
-          {
-            deploymentId: deployment,
-            token,
-            expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-          },
-          201,
-        ),
-      )
-      .mockResolvedValueOnce(
-        ok({ items: [], nextCursor: null, hasMore: false }),
-      );
-    const api = await import("@/lib/paiflow");
-    await expect(api.listEvents()).rejects.toMatchObject({
-      status: 403,
-      api: { code: "FORBIDDEN" },
-    });
-    await api.listEvents();
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(api.publicConfig()).toMatchObject({ mode: "disabled" });
+    await expect(api.listEvents()).rejects.toMatchObject({ status: 503 });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

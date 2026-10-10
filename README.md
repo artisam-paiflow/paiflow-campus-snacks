@@ -14,13 +14,13 @@ The unconfigured sample lets you browse the menu; payments unlock after setup.
 
 ## Hackathon timeline
 
-Choose your idea now. After October 12 onboarding, use the supplied starter to build your app's screens and features that don't involve payments, with payment features and the live feed disabled. Campus Snacks is a reference sample for the shared payment setup. Team account credentials, flow deployment, Paiflow API integration and live payment testing begin on **October 14**. The setup and rehearsal below are for that integration day.
+Follow your event's participant brief and organisers for onboarding, preparation permissions, credentials, integration timing and submission rules. This repository does not set those rules.
 
-Prepare dedicated customer and recipient testnet wallets beforehand. Wallet setup, exact USDC trustlines and obtaining testnet XLM/USDC are allowed before integration. Wallet and funding support will be available on site on October 14, with ready-to-use wallets as a last resort.
+Use preparation mode to build and customise non-payment screens. Prepare dedicated customer and recipient testnet wallets and obtain funding when your event permits it; wallet support or fallback wallets depend on the organisers.
 
 Organiser-provided fallback wallets are testnet-only; organisers retain copies of their keys. Never use them for real funds or import their keys into a wallet you use for real money. Never put wallet secret keys in the app.
 
-## Run locally on October 14
+## Run locally
 
 Requires **Node 22** and **pnpm 10**. No additional dependencies were added to the starter.
 
@@ -33,11 +33,11 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Open http://localhost:3000. The menu works with empty configuration, but payments and event polling stay disabled until you configure the stand below. This sample deliberately does not use the starter's shared XLM swap demo, which would send funds through a different flow.
+Open http://localhost:3000. The app defaults to preparation mode, including when credentials are present. Wallet actions, payments and event polling stay disabled until you explicitly select team mode and configure the stand below. Direct payment/event requests return HTTP 403 `PREPARATION_MODE`; the server makes no upstream calls. This sample deliberately does not use the starter's shared XLM swap demo, which would send funds through a different flow.
 
-## Set up the stand in Paiflow on October 14
+## Set up the stand in Paiflow
 
-1. Sign into [Paiflow testnet](https://beta.app.paiflow.xyz) with your team account.
+1. Sign into [Paiflow testnet](https://beta.paiflow.xyz) with your team account.
 2. Build **On Receive (USDC) → Split (USDC)**, with percentage recipients in this order:
 
    | Recipient                           | Share | Basis points |
@@ -52,10 +52,13 @@ Open http://localhost:3000. The menu works with empty configuration, but payment
 5. Set these values in `.env.local` (or your app host's server environment), then restart:
 
    ```dotenv
-   PAIFLOW_BASE_URL=https://beta.app.paiflow.xyz
+   PAIFLOW_MODE=team
+   PAIFLOW_BASE_URL=https://beta.paiflow.xyz
    PAIFLOW_API_TOKEN=<your deployment API token>
    PAIFLOW_DEPLOYMENT_ID=<your confirmed deployment UUID>
    ```
+
+   Set team mode only when your event permits integration. Missing or invalid credentials disable integration with a clear configuration error; `demo` is unsupported and never selected by an empty token. Keep the guards when customising the app. Confirm any pending signed payment before changing modes.
 
    Keep the token on the server. Never use `NEXT_PUBLIC_`, commit `.env.local`, or paste wallet secrets into the app. One deployment serves all this stand's customers.
 
@@ -65,7 +68,7 @@ Open http://localhost:3000. The menu works with empty configuration, but payment
 
 The app's 90/10 display is a preview of this required flow setup. The sample cannot inspect your graph through the starter API: configuring a different deployment changes where money actually goes. Review the deployed recipients and shares, then rehearse the payout. API simulation checks account and trustline readiness before signing.
 
-## Rehearse the demo on October 14
+## Rehearse the demo
 
 1. Choose **The study-break combo**: total 3.5 USDC; vendor preview 3.15; student org preview 0.35.
 2. Connect the customer wallet and choose **Buy snack**. Approve the transaction in Freighter.
@@ -74,6 +77,8 @@ The app's 90/10 display is a preview of this required flow setup. The sample can
 5. To demonstrate a second customer, switch accounts in Freighter and select **Refresh wallet**.
 
 The percentage Split event contains configured shares, not transferred amounts. Jar totals pair one USDC deposit with one 90/10 Split payout in the same transaction and follow contract rounding (the last recipient receives the remainder). Events are deduplicated by `eventId`. Initial history fills the jars without replaying animations; only newly matched payouts trigger coin drops. Unmatched or unsupported activity stays visible in the transaction history and is excluded from the totals. Reduced-motion preferences disable the drops.
+
+If signing takes too long, the preparation may expire (use its `expiresAt`; normally about three minutes). If nothing was submitted, prepare and sign again. Once submitted, check its outcome before preparing another payment, even if the preparation has expired.
 
 If confirmation is pending or the server/network returns an uncertain error, keep the tab open and select **Check again**. It resubmits the exact signed envelope; do not prepare a second payment. The sample holds pending envelopes only in tab memory. On a reload, check the wallet/explorer before starting a new order. Cancelled signing creates no receipt; HTTP 200 with `FAILED` is still a failed payment.
 
@@ -92,7 +97,7 @@ A real end-to-end wallet/payout rehearsal is still required after configuring th
 
 This is checkout plumbing for a hackathon, with no auth, stock or fulfilment system. The selected snack is not stored in the contract or a persistent order record. Server-calculated preparation prices do not make the UI receipt an authorisation to deliver real goods. Add verified order-to-transaction binding and your own app authorisation before extending it into a real store.
 
-Read [llms.md](llms.md) for the participant API context and [the Paiflow OpenAPI document](https://beta.app.paiflow.xyz/api/v1/openapi.json) for endpoint details.
+Read [llms.md](llms.md) for the participant API context and [the Paiflow OpenAPI document](https://beta.paiflow.xyz/api/v1/openapi.json) for endpoint details.
 
 ## Checks
 
