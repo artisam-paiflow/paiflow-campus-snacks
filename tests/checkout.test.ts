@@ -20,7 +20,7 @@ beforeEach(() => {
   mockFetch.mockReset();
   vi.stubGlobal("fetch", mockFetch);
   vi.stubEnv("PAIFLOW_MODE", "team");
-  vi.stubEnv("PAIFLOW_BASE_URL", "https://beta.paiflow.xyz");
+  vi.stubEnv("PAIFLOW_BASE_URL", "https://beta.app.paiflow.xyz");
   vi.stubEnv("PAIFLOW_API_TOKEN", token);
   vi.stubEnv("PAIFLOW_DEPLOYMENT_ID", deployment);
 });
@@ -108,7 +108,7 @@ it("requires a deployment ID alongside the token and never sends the token to th
   expect(storeConfig()).toEqual({
     ready: true,
     mode: "team",
-    deploymentUrl: `https://beta.paiflow.xyz/deployments/${deployment}`,
+    deploymentUrl: `https://beta.app.paiflow.xyz/deployments/${deployment}`,
   });
   expect(JSON.stringify(storeConfig())).not.toContain(token);
   vi.stubEnv("PAIFLOW_DEPLOYMENT_ID", "");
@@ -132,7 +132,7 @@ it("prepares a catalog price on the server instead of accepting an arbitrary amo
   expect(await response.json()).toEqual({ data: prepared });
   const [url, options] = mockFetch.mock.calls[0]!;
   expect(String(url)).toBe(
-    `https://beta.paiflow.xyz/api/v1/deployments/${deployment}/execute`,
+    `https://beta.app.paiflow.xyz/api/v1/deployments/${deployment}/execute`,
   );
   expect(JSON.parse(options!.body as string)).toEqual({
     from,
