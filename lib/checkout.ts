@@ -1,19 +1,16 @@
 import "server-only";
 import { handle, InputError, paymentBody } from "@/lib/http";
 import { menuItem, priceBreakdown } from "@/lib/menu";
-import { publicConfig } from "@/lib/paiflow";
+import { publicConfig, requireIntegration } from "@/lib/paiflow";
 
 export function storeConfig() {
   const config = publicConfig();
-  const ready = !config.demoMode && !!process.env.PAIFLOW_DEPLOYMENT_ID?.trim();
-  return { ready, deploymentUrl: ready ? config.deploymentUrl : null };
+  const ready = config.mode === "team";
+  return { ...config, ready };
 }
 
 export function requireStore() {
-  if (!storeConfig().ready)
-    throw new InputError(
-      "Set the snack stand's deployment ID and API token on the server first.",
-    );
+  requireIntegration();
 }
 
 export async function checkoutBody(request: Request) {

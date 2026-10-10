@@ -19,7 +19,8 @@ const ok = (data: unknown) => Response.json({ data });
 beforeEach(() => {
   mockFetch.mockReset();
   vi.stubGlobal("fetch", mockFetch);
-  vi.stubEnv("PAIFLOW_BASE_URL", "https://beta.app.paiflow.xyz");
+  vi.stubEnv("PAIFLOW_MODE", "team");
+  vi.stubEnv("PAIFLOW_BASE_URL", "https://beta.paiflow.xyz");
   vi.stubEnv("PAIFLOW_API_TOKEN", token);
   vi.stubEnv("PAIFLOW_DEPLOYMENT_ID", deployment);
 });
@@ -87,13 +88,17 @@ it.each(["", "  "])(
   "disables all payment/event calls with missing token %j without minting a demo token",
   async (value) => {
     vi.stubEnv("PAIFLOW_API_TOKEN", value);
-    expect(storeConfig()).toEqual({ ready: false, deploymentUrl: null });
+    expect(storeConfig()).toMatchObject({
+      ready: false,
+      mode: "disabled",
+      deploymentUrl: null,
+    });
     expect((await POST(request({ from, itemId: "iced-tea" }))).status).toBe(
-      422,
+      503,
     );
-    expect((await POST(request({ signedXdr: "signed" }))).status).toBe(422);
+    expect((await POST(request({ signedXdr: "signed" }))).status).toBe(503);
     expect((await GET(new Request("http://localhost/api/events"))).status).toBe(
-      422,
+      503,
     );
     expect(mockFetch).not.toHaveBeenCalled();
   },
@@ -102,11 +107,16 @@ it.each(["", "  "])(
 it("requires a deployment ID alongside the token and never sends the token to the browser", () => {
   expect(storeConfig()).toEqual({
     ready: true,
-    deploymentUrl: `https://beta.app.paiflow.xyz/deployments/${deployment}`,
+    mode: "team",
+    deploymentUrl: `https://beta.paiflow.xyz/deployments/${deployment}`,
   });
   expect(JSON.stringify(storeConfig())).not.toContain(token);
   vi.stubEnv("PAIFLOW_DEPLOYMENT_ID", "");
-  expect(storeConfig()).toEqual({ ready: false, deploymentUrl: null });
+  expect(storeConfig()).toMatchObject({
+    ready: false,
+    mode: "disabled",
+    deploymentUrl: null,
+  });
 });
 
 it("prepares a catalog price on the server instead of accepting an arbitrary amount", async () => {
@@ -122,7 +132,7 @@ it("prepares a catalog price on the server instead of accepting an arbitrary amo
   expect(await response.json()).toEqual({ data: prepared });
   const [url, options] = mockFetch.mock.calls[0]!;
   expect(String(url)).toBe(
-    `https://beta.app.paiflow.xyz/api/v1/deployments/${deployment}/execute`,
+    `https://beta.paiflow.xyz/api/v1/deployments/${deployment}/execute`,
   );
   expect(JSON.parse(options!.body as string)).toEqual({
     from,
@@ -161,3 +171,26 @@ it("rechecks precisely the same envelope after an uncertain submission error", a
     mockFetch.mock.calls[1]![1]?.body,
   );
 });
+
+it.each([undefined, "prepare"])(
+  "blocks direct payment and event routes in %s mode",
+  async (mode) => {
+    vi.stubEnv("PAIFLOW_MODE", mode);
+    expect(storeConfig()).toEqual({
+      ready: false,
+      mode: "prepare",
+      deploymentUrl: null,
+    });
+    for (const response of [
+      await POST(request({ from, itemId: "iced-tea" })),
+      await POST(request({ signedXdr: "same" })),
+      await GET(new Request("http://localhost/api/events")),
+    ]) {
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({
+        error: { code: "PREPARATION_MODE" },
+      });
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  },
+);

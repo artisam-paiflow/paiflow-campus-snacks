@@ -30,61 +30,113 @@ export class PaiflowError extends Error {
   }
 }
 type Config = { origin: string; deploymentId: string; token: string };
-type Demo = Config & { expires: number };
-type DemoCache = { demo?: Demo; minting?: Promise<Demo> };
-// Next builds separate route bundles. Share the cache across those bundles and dev reloads.
-const processState = globalThis as typeof globalThis & {
-  __paiflowDemoCache?: Map<string, DemoCache>;
-};
-const demoCaches = (processState.__paiflowDemoCache ??= new Map<
-  string,
-  DemoCache
->());
-export function publicConfig() {
-  const origin = process.env.PAIFLOW_BASE_URL || "https://beta.app.paiflow.xyz";
-  const demoMode = !process.env.PAIFLOW_API_TOKEN?.trim();
-  return {
-    demoMode,
-    deploymentUrl: demoMode
-      ? null
-      : new URL(
-          `/deployments/${encodeURIComponent(process.env.PAIFLOW_DEPLOYMENT_ID || "")}`,
-          origin,
-        ).href,
-  };
+export type Mode = "prepare" | "team";
+export type PublicConfig =
+  | { mode: "prepare"; deploymentUrl: null }
+  | { mode: "team"; deploymentUrl: string }
+  | { mode: "disabled"; deploymentUrl: null; message: string };
+
+function configurationError(message: string): never {
+  throw new PaiflowError(503, { code: "CONFIGURATION", message }, null, null);
+}
+function mode(): Mode {
+  const value = process.env.PAIFLOW_MODE?.trim() ?? "prepare";
+  if (value === "prepare" || value === "team") return value;
+  return configurationError(
+    "Set PAIFLOW_MODE to prepare or team. Campus Snacks does not support the shared demo.",
+  );
+}
+function origin() {
+  try {
+    const url = new URL(
+      process.env.PAIFLOW_BASE_URL || "https://beta.paiflow.xyz",
+    );
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname !== "/"
+    )
+      return configurationError("Set PAIFLOW_BASE_URL to a platform origin.");
+    return url.origin;
+  } catch {
+    return configurationError("Set PAIFLOW_BASE_URL to a platform origin.");
+  }
+}
+function teamConfig(): Config {
+  const token = process.env.PAIFLOW_API_TOKEN?.trim();
+  const deploymentId = process.env.PAIFLOW_DEPLOYMENT_ID?.trim();
+  if (!token || !deploymentId)
+    return configurationError(
+      "Team mode requires PAIFLOW_API_TOKEN and PAIFLOW_DEPLOYMENT_ID.",
+    );
+  if (!/^pfk_[a-f0-9]{64}$/.test(token))
+    return configurationError(
+      "Set a valid deployment API token for team mode.",
+    );
+  if (
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
+      deploymentId,
+    )
+  )
+    return configurationError("Set a valid deployment UUID for team mode.");
+  return { origin: origin(), deploymentId, token };
+}
+export function requireIntegration(): "team" {
+  const selected = mode();
+  switch (selected) {
+    case "prepare":
+      throw new PaiflowError(
+        403,
+        {
+          code: "PREPARATION_MODE",
+          message:
+            "Payments and the live feed are disabled in preparation mode.",
+        },
+        null,
+        null,
+      );
+    case "team":
+      teamConfig();
+      return selected;
+    default: {
+      const unreachable: never = selected;
+      return unreachable;
+    }
+  }
+}
+export function publicConfig(): PublicConfig {
+  try {
+    const selected = mode();
+    switch (selected) {
+      case "prepare":
+        return { mode: selected, deploymentUrl: null };
+      case "team": {
+        const config = teamConfig();
+        return {
+          mode: selected,
+          deploymentUrl: new URL(
+            `/deployments/${config.deploymentId}`,
+            config.origin,
+          ).href,
+        };
+      }
+      default: {
+        const unreachable: never = selected;
+        return unreachable;
+      }
+    }
+  } catch (error) {
+    if (error instanceof PaiflowError && error.api.code === "CONFIGURATION")
+      return { mode: "disabled", deploymentUrl: null, message: error.message };
+    throw error;
+  }
 }
 async function config(): Promise<Config> {
-  const origin = process.env.PAIFLOW_BASE_URL || "https://beta.app.paiflow.xyz";
-  const token = process.env.PAIFLOW_API_TOKEN?.trim();
-  if (token) {
-    const deploymentId = process.env.PAIFLOW_DEPLOYMENT_ID;
-    if (!deploymentId)
-      throw new Error("Set PAIFLOW_DEPLOYMENT_ID alongside your team token.");
-    return { origin, deploymentId, token };
-  }
-  const cache = demoCaches.get(origin) ?? {};
-  demoCaches.set(origin, cache);
-  if (cache.demo && Date.now() < cache.demo.expires - 120_000)
-    return cache.demo;
-  // Single flight: concurrent requests must not consume the 3/hour token allowance.
-  if (!cache.minting)
-    cache.minting = getDemoToken(origin)
-      .then((value) => {
-        const expires = Date.parse(value.expiresAt);
-        if (!Number.isFinite(expires) || expires <= Date.now() + 120_000)
-          throw new Error("Demo token validity is too short.");
-        cache.demo = {
-          origin,
-          token: value.token,
-          deploymentId: value.deploymentId,
-          expires,
-        };
-        return cache.demo;
-      })
-      .finally(() => {
-        cache.minting = undefined;
-      });
-  return cache.minting;
+  requireIntegration();
+  return teamConfig();
 }
 async function call<T>(
   endpoint: string,
@@ -207,21 +259,4 @@ export async function getOpenApi(origin: string): Promise<unknown> {
   const response = await fetch(new URL("/api/v1/openapi.json", origin));
   if (!response.ok) throw new Error(`OpenAPI HTTP ${response.status}`);
   return response.json();
-}
-export async function getDemoToken(origin: string) {
-  const response = await fetch(new URL("/api/v1/demo-token", origin), {
-    method: "POST",
-  });
-  const body = (await response.json()) as
-    | { data: { deploymentId: string; token: string; expiresAt: string } }
-    | { error: ApiFailure };
-  if ("error" in body)
-    throw new PaiflowError(
-      response.status,
-      body.error,
-      response.headers.get("Retry-After"),
-      response.headers.get("x-request-id"),
-    );
-  if (!response.ok) throw new Error(`Demo HTTP ${response.status}`);
-  return body.data; // keep token server-side
 }

@@ -8,7 +8,12 @@ import { connectWallet, refreshWallet, signPrepared } from "@/lib/wallet";
 import { ContributionJars } from "@/components/contribution-jars";
 import { SnackArt } from "@/components/snack-art";
 
-type Config = { ready: boolean; deploymentUrl: string | null };
+type Config = {
+  ready: boolean;
+  deploymentUrl: string | null;
+  mode: "prepare" | "team" | "disabled";
+  message?: string;
+};
 type Pending = { signedXdr: string; itemId: MenuItemId };
 type Receipt = Submitted & { itemId: MenuItemId };
 
@@ -65,6 +70,7 @@ export function SnackStand({ config }: { config: Config }) {
     : [];
 
   useEffect(() => {
+    if (!config.ready) return;
     const refresh = () => {
       void refreshWallet()
         .then(setAddress)
@@ -73,7 +79,7 @@ export function SnackStand({ config }: { config: Config }) {
     refresh();
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, []);
+  }, [config.ready]);
 
   useEffect(() => {
     if (!config.ready) return;
@@ -138,7 +144,7 @@ export function SnackStand({ config }: { config: Config }) {
   }, [config.ready]);
 
   async function wallet(connect: boolean) {
-    if (walletBusy || working.current) return;
+    if (!config.ready || walletBusy || working.current) return;
     setWalletBusy(true);
     try {
       setAddress(await (connect ? connectWallet() : refreshWallet()));
@@ -164,7 +170,7 @@ export function SnackStand({ config }: { config: Config }) {
   }
 
   async function pay(retry = false) {
-    if (working.current || walletBusy) return;
+    if (!config.ready || working.current || walletBusy) return;
     working.current = true;
     setPhase("Preparing payment…");
     setError("");
@@ -259,9 +265,10 @@ export function SnackStand({ config }: { config: Config }) {
 
       {!config.ready && (
         <aside className="setup-notice" role="status">
-          <strong>The menu is open for a look around.</strong> Payments unlock
-          once the organiser connects the stand’s USDC deployment. Setup
-          instructions are in the repo’s README.
+          <strong>The menu is open for a look around.</strong>{" "}
+          {config.mode === "prepare"
+            ? "Payments, wallet actions and live activity are paused in preparation mode."
+            : config.message || "Payment setup needs attention."}
         </aside>
       )}
 
@@ -343,7 +350,7 @@ export function SnackStand({ config }: { config: Config }) {
                 <span title={address}>{short(address)}</span>
                 <button
                   className="text-button"
-                  disabled={busy || walletBusy}
+                  disabled={!config.ready || busy || walletBusy}
                   onClick={() => void wallet(false)}
                 >
                   Refresh wallet
@@ -352,7 +359,7 @@ export function SnackStand({ config }: { config: Config }) {
             ) : (
               <button
                 className="wallet-button"
-                disabled={busy || walletBusy}
+                disabled={!config.ready || busy || walletBusy}
                 onClick={() => void wallet(true)}
               >
                 {walletBusy ? "Connecting…" : "Connect Freighter"}{" "}
@@ -387,7 +394,10 @@ export function SnackStand({ config }: { config: Config }) {
                 Keep this tab open. Your signed payment may already have been
                 sent.
               </p>
-              <button disabled={busy} onClick={() => void pay(true)}>
+              <button
+                disabled={!config.ready || busy}
+                onClick={() => void pay(true)}
+              >
                 {busy ? "Checking…" : "Check again"}
               </button>
             </div>
@@ -526,11 +536,7 @@ export function SnackStand({ config }: { config: Config }) {
         </span>
         <span>
           Powered by{" "}
-          <a
-            href="https://beta.app.paiflow.xyz"
-            target="_blank"
-            rel="noreferrer"
-          >
+          <a href="https://beta.paiflow.xyz" target="_blank" rel="noreferrer">
             Paiflow
           </a>
         </span>
