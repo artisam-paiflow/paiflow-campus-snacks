@@ -12,6 +12,17 @@ This is a sample shop: no real snacks, real-money prices, fulfilment, or persist
 
 The unconfigured sample lets you browse the menu; payments unlock after setup.
 
+## Choose the right resource
+
+| Resource | Use it for |
+| --- | --- |
+| [Developer guide](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/hackathon/developer-guide.md) | Wallet setup, building and deploying a flow, and configuring the ready-wired starter. |
+| [API quickstart](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/hackathon/developer-api-quickstart.md) | A separate frontend/backend integration for apps built without the starter. Do not copy its routes into this repository. |
+| [Full API reference](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/api/README.md) | Endpoint schemas, errors, limits, pagination and advanced workflows. |
+| [AI developer context](llms.md) | Product constraints, API details and worked examples for your AI assistant. |
+
+The human guides and their PDFs live directly in `docs/hackathon/` in the Paiflow repository. They are event-neutral; follow your participant brief for event rules.
+
 ## Hackathon timeline
 
 Follow your event's participant brief and organisers for onboarding, preparation permissions, credentials, integration timing and submission rules. This repository does not set those rules.
@@ -37,7 +48,7 @@ Open http://localhost:3000. The app defaults to preparation mode, including when
 
 ## Set up the stand in Paiflow
 
-1. Sign into [Paiflow testnet](https://beta.paiflow.xyz) with your team account.
+1. Sign into [Paiflow testnet](https://beta.app.paiflow.xyz) with your team account.
 2. Build **On Receive (USDC) → Split (USDC)**, with percentage recipients in this order:
 
    | Recipient                           | Share | Basis points |
@@ -53,7 +64,7 @@ Open http://localhost:3000. The app defaults to preparation mode, including when
 
    ```dotenv
    PAIFLOW_MODE=team
-   PAIFLOW_BASE_URL=https://beta.paiflow.xyz
+   PAIFLOW_BASE_URL=https://beta.app.paiflow.xyz
    PAIFLOW_API_TOKEN=<your deployment API token>
    PAIFLOW_DEPLOYMENT_ID=<your confirmed deployment UUID>
    ```
@@ -97,7 +108,7 @@ A real end-to-end wallet/payout rehearsal is still required after configuring th
 
 This is checkout plumbing for a hackathon, with no auth, stock or fulfilment system. The selected snack is not stored in the contract or a persistent order record. Server-calculated preparation prices do not make the UI receipt an authorisation to deliver real goods. Add verified order-to-transaction binding and your own app authorisation before extending it into a real store.
 
-Read [llms.md](llms.md) for the participant API context and [the Paiflow OpenAPI document](https://beta.paiflow.xyz/api/v1/openapi.json) for endpoint details.
+Read [llms.md](llms.md) for the participant API context and [the Paiflow OpenAPI document](https://beta.app.paiflow.xyz/api/v1/openapi.json) for endpoint details.
 
 ## Checks
 

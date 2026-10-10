@@ -536,7 +536,7 @@ export function SnackStand({ config }: { config: Config }) {
         </span>
         <span>
           Powered by{" "}
-          <a href="https://beta.paiflow.xyz" target="_blank" rel="noreferrer">
+          <a href="https://beta.app.paiflow.xyz" target="_blank" rel="noreferrer">
             Paiflow
           </a>
         </span>

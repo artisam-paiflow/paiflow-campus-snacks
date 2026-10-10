@@ -1,6 +1,17 @@
 # Paiflow developer context guide
 
-API reference based on pinkraft `hackathon` @ 18b89d56625ef562ea9b0458f6ccc6d19f0f6efe. Shared guidance updated Oct 9, 2026. Testnet only.
+Shared technical guidance updated Oct 10, 2026. API and product details checked against pinkraft `staging` @ b945e6a. Testnet only.
+
+## Choose the right resource
+
+| Resource | Purpose |
+| --- | --- |
+| [Developer guide](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/hackathon/developer-guide.md) | Wallet setup, building and deploying a flow, and configuring the ready-wired starter. |
+| [API quickstart](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/hackathon/developer-api-quickstart.md) | A separate Next.js frontend/backend example for an app built without the starter. Do not copy its routes into the starter. |
+| [Full API reference](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/api/README.md) | Endpoint schemas, errors, limits, pagination and advanced workflows. |
+| This `llms.md` | Product constraints, API details and examples for AI-assisted development. It complements the human walkthroughs. |
+
+Both human guides live directly in `docs/hackathon/` and are event-neutral. Their PDFs mirror their Markdown sources. Event rules belong in the participant brief. `PAIFLOW_MODE` is a starter/sample control, not a Paiflow API setting; the API quickstart does not use it.
 
 ## Event instructions
 
@@ -17,7 +28,7 @@ The supplied starter defaults to preparation mode when `PAIFLOW_MODE` is unset. 
 
 When your event's integration window opens, set server-only `PAIFLOW_MODE=team` alongside the supplied platform origin, your confirmed deployment UUID and API token, then restart. Explicit `PAIFLOW_MODE=demo` enables the shared testnet demo where available and permitted by your event. An empty token never selects demo automatically; missing or invalid team configuration disables integration with a clear error. Keep the starter's mode guards when replacing its screens or extending its server client. A pending signed payment may still execute after a mode change; confirm its status before switching modes.
 
-`PAIFLOW_MODE` also applies to Campus Snacks: it defaults to prepare, accepts team with validated credentials, and rejects demo. The sample never falls back to a shared deployment.
+`PAIFLOW_MODE` also applies to Campus Snacks: it defaults to `prepare`, enables its own deployment only in `team`, and rejects `demo`. It retains preparation guards in the UI, routes and server client; credentials alone never enable payments. The sample does not use the starter's shared demo fallback.
 
 ## Demonstrating your integration
 
@@ -75,7 +86,7 @@ For Pay, set a positive fixed `amountStroops` per interval. For a percentage Spl
 
 Fields: `asset`.
 
-A server-side authenticated HTTP callback makes the relayer invoke an already funded flow. The deployment UI provides its trigger URL and webhook secret; keep the secret on your server. Depositing funds tops up this flow and does not fire the callback. It can drive Pay, Split or Swap; its supported condition kind is multisig. This is not an `execute` flow: the v1 deposit API refuses a webhook-headed deployment. For the simplest payment integration use On Receive instead.
+A server-side authenticated HTTP callback makes the relayer invoke an already funded flow. The authenticated owner deployment page provides its trigger URL and webhook secret; keep the secret on your server. Public embeds omit credentials, owner controls and private configuration. Depositing funds tops up this flow and does not fire the callback. It can drive Pay, Split or Swap; its supported condition kind is multisig. This is not an `execute` flow: the v1 deposit API refuses a webhook-headed deployment. For the simplest payment integration use On Receive instead.
 
 After your server verifies the completed goal, release from the funded pool with `x-webhook-secret` and a JSON body containing `escrow: true`. `amount` is a stroop string; omit it or use `"0"` to release the entire available balance. For one reward at a time, specify its amount:
 
@@ -83,11 +94,12 @@ After your server verifies the completed goal, release from the funded pool with
 # Run on your app server; keep PAIFLOW_WEBHOOK_SECRET server-side.
 curl -sS --fail-with-body -X POST "$PAIFLOW/api/webhooks/$DEPLOYMENT_ID" \
   -H "x-webhook-secret: $PAIFLOW_WEBHOOK_SECRET" \
+  -H "Idempotency-Key: task-completed-42" \
   -H 'Content-Type: application/json' \
   --data '{"escrow":true,"amount":"100000000"}'
 ```
 
-This releases 10 tokens from the pool. Check the response and transaction status before marking the reward paid; the callback can return `PENDING`.
+This requests 10 tokens from the pool. Use one stable `Idempotency-Key` per logical task completion and reuse the same key and payload for every retry. The keyed callback returns an `attemptId`, `network`, `status`, and `txHash` when available. HTTP 202 means `PENDING` or `UNKNOWN`, not a confirmed payout; repeat the keyed callback or use `GET /api/v1/deployments/:id/transactions/:txHash` with the deployment's `pfk_` token to check finality. Changed effective arguments return 409. Keys never automatically expire or reopen; an interrupted preparation can remain `UNKNOWN` without a hash and requires operator review. Never use a fresh key or omit it merely because the outcome is uncertain. Unkeyed callbacks remain supported and can each pay again. See [webhook retry rules](../api/README.md#retry-webhook-rewards-safely).
 
 ## Subscription — `subscription`
 
@@ -95,7 +107,7 @@ Fields: `asset`, `subscriber` (account address), `amountPerPeriodStroops` (integ
 
 Pull payments from the configured subscriber after they approve an allowance. The relayer charges when due, without the subscriber signing every charge, until the window ends or allowance/balance is exhausted. Starts at deployment time; end/count/default window follow the rules above. The non-deferred amount must be greater than zero. If the next Split has all fixed recipients, its total determines the pull amount instead of a stale manual period amount. Use the allowance page; `execute` cannot start a subscription. Use Pay or Split downstream; amount and time branching conditions are refused under this trigger.
 
-Dev mode can defer/change the subscriber and payment values through **Dev values** on the deployment page. An allowance still needs the customer's wallet signature. Do not claim that connecting any new wallet automatically creates a new subscriber in this one deployment.
+Dev mode can defer/change the subscriber and payment values through **Dev values** on the deployment page. On builds containing #790, the configured customer can open `/allowance/[deploymentId]` while logged out and approve with their wallet, without a Paiflow account or deployment token. The page supports ordinary and Dev subscriptions and reads the current deployed subscriber and token. An unconfigured Dev subscriber must be filled by the team first; a different wallet is refused. An allowance still needs the customer's wallet signature. Do not claim that connecting any new wallet automatically creates a new subscriber in this one deployment.
 
 ## Pay — `pay`
 
@@ -155,17 +167,32 @@ Email is a flow setting, not a block: optional `notify: { mode, sendTo }`, with 
 
 # 3. Hosted pages
 
-Use `https://beta.paiflow.xyz` as the Paiflow testnet origin for every URL below. `deploymentId` is the deployment UUID, not a flow id or `C…` contract address. These pages require a confirmed deployment with the appropriate contract type; an unavailable page returns 404.
+Use `https://beta.app.paiflow.xyz` as the Paiflow testnet origin for every URL below. `deploymentId` is the deployment UUID, not a flow id or `C…` contract address. These pages require a confirmed deployment with the appropriate contract type; an unavailable page returns 404.
 
-| Page      | URL shape                           | What the team's app uses it for                                                                                                                                                                                                                                                                             |
-| --------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Trigger   | `/trigger/[deploymentId]`           | Public payment/top-up page with amount entry and wallet signing. On Receive deposits run the flow; Schedule and HTTP Webhook deposits fund it. A fixed flow can lock its required amount; variable flows accept an `?amount=10` hint in tokens, not stroops. The flow's required amount overrides the hint. |
-| Embed     | `/deployments/[deploymentId]/embed` | Public view of the deployed graph and live events, with payment QR where supported. Link to it or place it in your app's embedded view; it is not an API response.                                                                                                                                          |
-| Allowance | `/allowance/[deploymentId]`         | The subscription customer connects their wallet and approves an asset allowance for the subscription contract. Each approval adds to the existing allowance. It does not deposit or charge immediately.                                                                                                     |
+| Page      | URL shape                           | What the team's app uses it for                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Trigger   | `/trigger/[deploymentId]`           | Public payment/top-up page with amount entry and wallet signing. On Receive deposits run the flow; Schedule and HTTP Webhook deposits fund it. A fixed flow can lock its required amount; variable flows accept an `?amount=10` hint in tokens, not stroops. The flow's required amount overrides the hint.                                                                                                              |
+| Embed     | `/deployments/[deploymentId]/embed` | On builds containing #577: public read-only graph, live recent events and a customer payment-page QR for supported Receive, webhook funding and streamer funding deployments. No Paiflow login or API token needed. If streaming is unavailable, activity updates periodically. Balances are omitted. Subscription approval remains a separate allowance page (#790). Credentials and private configuration are omitted. |
+| Allowance | `/allowance/[deploymentId]`         | On builds containing #790, the configured subscription customer connects their wallet and approves an asset allowance for the actual subscription contract, without a Paiflow login or deployment token. Each approval adds to the existing allowance. It does not deposit or charge immediately.                                                                                                                        |
+
+If approval confirmation is unknown, check the existing transaction status before approving again. The page resumes the prepared hash after reload and permits another attempt only after confirmation of failure or ledger-proven expiration. Approval does not itself execute a charge. Real wallet approval, scheduled charging and recipient payout still require the post-promotion rehearsal in [the manual checklist](manual-verifications.md).
 
 The usual trigger QR opens this hosted page (or the allowance page for a subscription). The customer then connects a testnet wallet and signs there. Separate transaction QR modes encode SEP-7 requests and require a compatible wallet. Your own checkout can use the execute sequence instead.
 
 # 4. The `/api/v1` API
+
+On builds containing capabilities discovery, `GET /api/v1/deployments/:id/capabilities` with the
+deployment's bearer token returns `data` with `network`, `triggerType`, initial `inputAsset` metadata,
+`configurationSource: "deployment_snapshot"` and `operations`. Operation keys are `execute`,
+`events`, `transactions`, `releaseEarly`, `payouts`, `webhook` and `subscriptionAllowance`. Each has
+`status` (`supported`, `conditional` or `unsupported`), `authentication`, `requirements` and
+candidate `nodeIds`. This is recorded integration support, not live readiness: no RPC or transaction
+is performed, and current funds, deadlines, consent and eligibility must be checked through the
+operation's state/preparation endpoint. Initial asset metadata may be stale after Dev mutations;
+null means unavailable. Standard flows cannot choose per-payment recipients. Webhook callbacks
+still require `x-webhook-secret`; allowance approval requires the configured subscriber's wallet.
+Discovery never returns credentials, recipient/subscriber addresses or private graph settings.
+Limit: 60 requests/minute per token; confirmed deployments on this environment's network only.
 
 ## Authentication and integration boundary
 
@@ -181,6 +208,7 @@ Success uses `{ "data": ... }`; preparation and submission return HTTP 200. Erro
 
 | Method and path                               | Limit                                           |
 | --------------------------------------------- | ----------------------------------------------- |
+| `GET /api/v1/deployments/:id/capabilities`    | 60 / 60 seconds per token                       |
 | `POST /api/v1/deployments/:id/execute`        | 30 / 60 seconds per token                       |
 | `POST /api/v1/deployments/:id/execute/submit` | 30 / 60 seconds per token                       |
 | `GET /api/v1/deployments/:id/events`          | 120 / 60 seconds per token                      |
@@ -221,7 +249,7 @@ Submission data has `txHash`, `status: "SUCCESS" | "PENDING" | "FAILED"`, option
 Run from a trusted terminal, not from a browser. Set the Paiflow testnet origin shown below and your real deployment UUID/token/customer public key. `jq` constructs JSON safely. No secret seed is used in these calls.
 
 ```bash
-export PAIFLOW='https://beta.paiflow.xyz'
+export PAIFLOW='https://beta.app.paiflow.xyz'
 export DEPLOYMENT_ID='YOUR-DEPLOYMENT-UUID'
 export PAIFLOW_TOKEN='pfk_YOUR_64_LOWERCASE_HEX_CHARACTERS'
 export FROM='YOUR_CUSTOMER_PUBLIC_G_ADDRESS'
@@ -243,7 +271,7 @@ curl -sS --fail-with-body -X POST "$PAIFLOW/api/v1/deployments/$DEPLOYMENT_ID/ex
 
 ### Copy-paste TypeScript fetch
 
-The following team-mode request example belongs in a server-only module. When extending the supplied starter, retain its mode guards; all six operations below use this helper. Set `PAIFLOW_BASE_URL=https://beta.paiflow.xyz` in your own app's server configuration. The error class retains status and retry information; callers must handle these rather than retrying every error.
+The following team-mode request example belongs in a server-only module. When extending the supplied starter, retain its mode guards; all six operations below use this helper. Set `PAIFLOW_BASE_URL=https://beta.app.paiflow.xyz` in your own app's server configuration. The error class retains status and retry information; callers must handle these rather than retrying every error.
 
 ```ts
 import "server-only";
@@ -283,8 +311,7 @@ function config() {
   const origin = process.env.PAIFLOW_BASE_URL;
   const deploymentId = process.env.PAIFLOW_DEPLOYMENT_ID;
   const token = process.env.PAIFLOW_API_TOKEN;
-  if (!origin || !deploymentId || !token)
-    throw new Error("Set Paiflow server configuration");
+  if (!origin || !deploymentId || !token) throw new Error("Set Paiflow server configuration");
   return { origin, deploymentId, token };
 }
 async function call<T>(
@@ -294,17 +321,11 @@ async function call<T>(
   query?: URLSearchParams,
 ): Promise<T> {
   const { origin, deploymentId, token } = config();
-  const url = new URL(
-    ["api", "v1", "deployments", deploymentId, endpoint].join("/"),
-    origin + "/",
-  );
+  const url = new URL(["api", "v1", "deployments", deploymentId, endpoint].join("/"), origin + "/");
   if (query) url.search = query.toString();
   const response = await fetch(url, {
     method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const requestId = response.headers.get("x-request-id");
@@ -329,12 +350,7 @@ async function call<T>(
 export const prepareExecute = (input: { from: string; amount: string }) =>
   call<Prepared>("execute", "POST", input);
 export const submitExecute = (input: { signedXdr: string }, wait = true) =>
-  call<Submitted>(
-    "execute/submit",
-    "POST",
-    input,
-    new URLSearchParams({ wait: String(wait) }),
-  );
+  call<Submitted>("execute/submit", "POST", input, new URLSearchParams({ wait: String(wait) }));
 ```
 
 In your browser checkout: request preparation from your own server, hand `xdr` and `networkPassphrase` to the wallet's transaction-signing function, then send its returned signed XDR to your own submit handler. Use the wallet adapter already in your starter; signing return shapes depend on that adapter. Do not add the bearer token to either browser call. The server handlers call `prepareExecute` and `submitExecute` above. Keep the same signed envelope while status is uncertain.
@@ -372,14 +388,8 @@ type EventItem = {
   occurredAt: string;
   data: unknown;
 };
-type EventPage = {
-  items: EventItem[];
-  nextCursor: string | null;
-  hasMore: boolean;
-};
-export function listEvents(
-  input: { cursor?: string; limit?: number; txHash?: string } = {},
-) {
+type EventPage = { items: EventItem[]; nextCursor: string | null; hasMore: boolean };
+export function listEvents(input: { cursor?: string; limit?: number; txHash?: string } = {}) {
   const query = new URLSearchParams();
   if (input.cursor) query.set("cursor", input.cursor);
   if (input.limit !== undefined) query.set("limit", String(input.limit));
@@ -428,12 +438,7 @@ export const preparePayout = (input: {
   nodeId?: string;
 }) => call<Prepared & { nodeId: string }>("payouts", "POST", input);
 export const submitPayout = (input: { signedXdr: string }, wait = true) =>
-  call<Submitted>(
-    "payouts/submit",
-    "POST",
-    input,
-    new URLSearchParams({ wait: String(wait) }),
-  );
+  call<Submitted>("payouts/submit", "POST", input, new URLSearchParams({ wait: String(wait) }));
 
 // Catch PaiflowError in your server handler. For status 409/429, forward status
 // and Retry-After to your UI; wait that many seconds before retrying.
@@ -456,11 +461,7 @@ Append to the same module; change `deadline` to the condition's actual node id:
 
 ```ts
 export const releaseEarly = (input: { nodeId?: string } = {}) =>
-  call<{ nodeId: string; txHash: string; ledger?: number }>(
-    "release-early",
-    "POST",
-    input,
-  );
+  call<{ nodeId: string; txHash: string; ledger?: number }>("release-early", "POST", input);
 // In an authorised server handler: await releaseEarly({ nodeId: "deadline" });
 ```
 
@@ -488,9 +489,7 @@ export async function getOpenApi(origin: string): Promise<unknown> {
 export async function getDemoToken(origin: string) {
   if (process.env.PAIFLOW_MODE !== "demo")
     throw new Error("Demo access requires explicit demo mode");
-  const response = await fetch(new URL("/api/v1/demo-token", origin), {
-    method: "POST",
-  });
+  const response = await fetch(new URL("/api/v1/demo-token", origin), { method: "POST" });
   const body = (await response.json()) as
     | { data: { deploymentId: string; token: string; expiresAt: string } }
     | { error: ApiFailure };
