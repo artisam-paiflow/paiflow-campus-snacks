@@ -16,9 +16,9 @@ The unconfigured sample lets you browse the menu; payments unlock after setup.
 
 | Resource | Use it for |
 | --- | --- |
-| [Developer guide](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/hackathon/developer-guide.md) | Wallet setup, building and deploying a flow, and configuring the ready-wired starter. |
-| [API quickstart](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/hackathon/developer-api-quickstart.md) | A separate frontend/backend integration for apps built without the starter. Do not copy its routes into this repository. |
-| [Full API reference](https://github.com/webnxt-2030/pinkraft/blob/hackathon-staging/docs/api/README.md) | Endpoint schemas, errors, limits, pagination and advanced workflows. |
+| [Developer guide](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/hackathon/developer-guide.md) | Wallet setup, building and deploying a flow, and configuring the ready-wired starter. |
+| [API quickstart](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/hackathon/developer-api-quickstart.md) | A separate frontend/backend integration for apps built without the starter. Do not copy its routes into this repository. |
+| [Full API reference](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/api/README.md) | Endpoint schemas, errors, limits, pagination and advanced workflows. |
 | [AI developer context](llms.md) | Product constraints, API details and worked examples for your AI assistant. |
 
 The human guides and their PDFs live directly in `docs/hackathon/` in the Paiflow repository. They are event-neutral; follow your participant brief for event rules.
