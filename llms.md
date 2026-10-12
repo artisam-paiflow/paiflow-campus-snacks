@@ -64,7 +64,7 @@ Asset fields take one of these shapes:
 {"kind":"custom","code":"TOKEN","issuer":"<real G-address>"}
 ```
 
-Native means XLM. Custom codes are normalised to 1–12 alphanumeric characters and require a valid issuer account. Swap only supports XLM and USDC. Use real testnet `G…` public account addresses for recipients and signers. `PENDING:<label>` is a design-time placeholder, not a payable address; resolve it before deploying unless that value is deliberately deferred in Dev mode. Never paste an `S…` secret seed into a flow field.
+Native means XLM. Custom codes are normalised to 1–12 alphanumeric characters and require a valid issuer account. Swap only supports XLM and USDC. Use real testnet `G…` public account addresses for recipients and signers. `PENDING:<label>` is a design-time placeholder, not a payable address; resolve it before deploying. Never paste an `S…` secret seed into a flow field.
 
 **Money is a decimal integer string in stroops**, never a JavaScript floating-point number: 1 token = 10,000,000 stroops; 10 USDC = `"100000000"`; 0.5 USDC = `"5000000"`. Use `bigint` for arithmetic and `.toString()` for API bodies. Basis points (`bps`) are integers: 1% = 100 bps; 100% = 10,000 bps. ISO date-time fields include a timezone, for example `2026-10-09T06:00:00Z` (choose a future time for your actual demo).
 
@@ -107,15 +107,13 @@ Fields: `asset`, `subscriber` (account address), `amountPerPeriodStroops` (integ
 
 Pull payments from the configured subscriber after they approve an allowance. The relayer charges when due, without the subscriber signing every charge, until the window ends or allowance/balance is exhausted. Starts at deployment time; end/count/default window follow the rules above. The non-deferred amount must be greater than zero. If the next Split has all fixed recipients, its total determines the pull amount instead of a stale manual period amount. Use the allowance page; `execute` cannot start a subscription. Use Pay or Split downstream; amount and time branching conditions are refused under this trigger.
 
-Dev mode can defer/change the subscriber and payment values through **Dev values** on the deployment page. On builds containing #790, the configured customer can open `/allowance/[deploymentId]` while logged out and approve with their wallet, without a Paiflow account or deployment token. The page supports ordinary and Dev subscriptions and reads the current deployed subscriber and token. An unconfigured Dev subscriber must be filled by the team first; a different wallet is refused. An allowance still needs the customer's wallet signature. Do not claim that connecting any new wallet automatically creates a new subscriber in this one deployment.
+The configured customer still signs the allowance approval with their own wallet.
 
 ## Pay — `pay`
 
-Fields: `recipient`, `asset`; optional `email` (up to 254 characters), `mode` (`fixed` or `percentage`), `amountStroops`, `percentage` (0–100), `fullAmount` (default false), `fillValueViaApi`, `payoutMode` (use `crypto`).
+Fields: `recipient`, `asset`; optional `email` (up to 254 characters), `mode` (`fixed` or `percentage`), `amountStroops`, `percentage` (0–100), `fullAmount` (default false), `payoutMode` (use `crypto`).
 
-Pay one recipient. Unless full amount or deferred value is selected, choose a mode: a fixed amount must be positive; a percentage must be greater than zero and at most 100. `fullAmount: true` pays 100% of what arrives. Fixed Pay sends the smaller of incoming amount and its configured cap; any surplus goes to its next step. With no next step, surplus stays in the Pay contract: avoid overfunding a terminal fixed Pay. For variable checkout prices, full amount is simpler.
-
-`fillValueViaApi` is only allowed with graph `devMode: true`. That mutable Pay can deploy before its recipient/value is filled. This configuration requires Dev mode and is unavailable for the event. Configure the recipient and amount before deployment.
+Pay one recipient. Unless full amount is selected, choose a mode: a fixed amount must be positive; a percentage must be greater than zero and at most 100. `fullAmount: true` pays 100% of what arrives. Fixed Pay sends the smaller of incoming amount and its configured cap; any surplus goes to its next step. With no next step, surplus stays in the Pay contract: avoid overfunding a terminal fixed Pay. For variable checkout prices, full amount is simpler.
 
 ## Split — `split`
 
@@ -124,10 +122,10 @@ Fields: `asset`, `recipients` (up to 20), optional `amountPerIntervalStroops`. E
 - All recipients use the same mode. Never mix percentage and fixed rows.
 - Percentage shares must each be greater than zero and sum to exactly 10,000 bps. For three equal shares use 3333, 3333, 3334. Rounding remainder goes to the last recipient.
 - Fixed amounts must each be positive, with a positive total. Short deposits accumulate; the roster is paid when enough funds are held. Surplus is forwarded to a next step if one exists.
-- No duplicate recipient addresses. A non-Dev flow needs at least one recipient. Dev mode may deploy an empty roster, but fill it in **Dev values** before payments.
+- No duplicate recipient addresses. Configure at least one recipient before deployment.
 - A scheduled percentage Split needs a positive `amountPerIntervalStroops`; a fixed scheduled Split derives the amount from its roster.
 
-Use Split for fan-out rather than drawing several outgoing money paths and expecting automatic division. A percentage Split consumes the deposit; it does not leave money for a subsequent per-payment Pay.
+Use Split for fan-out rather than drawing several outgoing money paths and expecting automatic division. A percentage Split consumes the deposit; it does not leave money for a subsequent Pay.
 
 ## Swap — `swap`
 
