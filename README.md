@@ -18,7 +18,7 @@ The unconfigured sample lets you browse the menu; payments unlock after setup.
 | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | [Paiflow Guide](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/hackathon/paiflow-guide.md) | Wallet setup, building and deploying a flow, and configuring the ready-wired starter.                                                  |
 | [SDK README](https://github.com/artisam-paiflow/paiflow/blob/develop/packages/sdk/README.md)             | Typed Node integration, examples, errors and transaction recovery for the published beta. The starter/sample uses its own HTTP client. |
-| [HTTP API README](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/api/README.md)            | Custom browser/server integration, endpoint schemas, signing, errors and recovery; includes OpenAPI and Postman links.                 |
+| [HTTP API README](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/api/README.md)            | Endpoint schemas, signing, errors, recovery and advanced workflows; includes OpenAPI and Postman links.                 |
 | [AI developer context](llms.md)                                                                          | Product constraints, API details and worked examples for your AI assistant.                                                            |
 
 Distribute only the event-specific primer and the Paiflow Guide as PDFs. The guide is event-neutral; follow your primer for event rules, registration, submission and support. Detailed SDK/API references remain on GitHub.
