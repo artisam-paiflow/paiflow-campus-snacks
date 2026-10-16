@@ -4,14 +4,14 @@ Shared technical guidance updated Oct 12, 2026. API details checked against pink
 
 ## Choose the right resource
 
-| Resource | Purpose |
-| --- | --- |
-| [Developer guide](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/hackathon/developer-guide.md) | Wallet setup, building and deploying a flow, and configuring the ready-wired starter. |
-| [API quickstart](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/hackathon/developer-api-quickstart.md) | A separate Next.js frontend/backend example for an app built without the starter. Do not copy its routes into the starter. |
-| [Full API reference](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/api/README.md) | Endpoint schemas, errors, limits, pagination and advanced workflows. |
-| This `llms.md` | Product constraints, API details and examples for AI-assisted development. It complements the human walkthroughs. |
+| Resource                                                                                                 | Purpose                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| [Paiflow Guide](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/hackathon/paiflow-guide.md) | Wallet setup, building and deploying a flow, and configuring the ready-wired starter.                                                  |
+| [SDK README](https://github.com/artisam-paiflow/paiflow/blob/develop/packages/sdk/README.md)             | Typed Node integration, examples, errors and transaction recovery for the published beta. The starter/sample uses its own HTTP client. |
+| [HTTP API README](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/api/README.md)            | Custom browser/server integration, endpoint schemas, signing, errors and recovery; includes OpenAPI and Postman links.                 |
+| This `llms.md`                                                                                           | Product constraints, API details and examples for AI-assisted development. It complements the human walkthroughs.                      |
 
-Both human guides live directly in `docs/hackathon/` and are event-neutral. Their PDFs mirror their Markdown sources. Event rules belong in the participant brief. `PAIFLOW_MODE` is a starter/sample control, not a Paiflow API setting; the API quickstart does not use it.
+The Paiflow Guide is the event-neutral end-to-end walkthrough. Distribute only that guide and the event-specific primer as PDFs; use the GitHub SDK/API READMEs for detailed examples, errors and recovery. Event rules belong in the primer. `PAIFLOW_MODE` is a starter/sample control, not a Paiflow API setting.
 
 ## Event instructions
 
