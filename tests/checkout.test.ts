@@ -225,6 +225,20 @@ it("rejects missing or foreign Origin before contacting the SDK", async () => {
   expect(mockFetch).not.toHaveBeenCalled();
 });
 
+it("prepares a server-priced checkout behind Railway's HTTPS proxy", async () => {
+  vi.stubEnv("APP_ORIGIN", "");
+  vi.stubEnv("RAILWAY_PUBLIC_DOMAIN", "campus-snacks.up.railway.app");
+  const response = await POST(
+    new Request("http://0.0.0.0:8080/api/pay", {
+      method: "POST",
+      headers: { origin: "https://campus-snacks.up.railway.app" },
+      body: JSON.stringify({ from, itemId: "snack-combo" }),
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+});
+
 it("rejects invalid status hashes, oversized requests and malformed preparation metadata before contacting the SDK", async () => {
   for (const body of [
     { action: "status", txHash: "bad" },

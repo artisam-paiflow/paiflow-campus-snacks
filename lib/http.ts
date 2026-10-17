@@ -124,7 +124,36 @@ export async function paymentBody(
 }
 
 export function sameOrigin(request: Request) {
-  if (request.headers.get("origin") !== new URL(request.url).origin)
+  // Railway terminates TLS before forwarding to Next.js. Its internal request
+  // URL is not the browser origin. Trust deployment configuration, never caller-
+  // supplied Forwarded/X-Forwarded-* headers, for the external origin.
+  const configured =
+    process.env.APP_ORIGIN ||
+    (process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+      : new URL(request.url).origin);
+  let expected: URL;
+  try {
+    expected = new URL(configured);
+    if (
+      (expected.protocol !== "https:" &&
+        !(
+          expected.protocol === "http:" &&
+          ["localhost", "127.0.0.1", "[::1]"].includes(expected.hostname)
+        )) ||
+      expected.username ||
+      expected.password ||
+      expected.pathname !== "/" ||
+      expected.search ||
+      expected.hash
+    )
+      throw new Error("Invalid origin");
+  } catch {
+    throw new InputError(
+      "Configure APP_ORIGIN as this application's public origin.",
+    );
+  }
+  if (request.headers.get("origin") !== expected.origin)
     throw new InputError(
       "Use this application's own origin for payment requests.",
     );
