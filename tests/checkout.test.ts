@@ -5,19 +5,30 @@ import { POST } from "@/app/api/pay/route";
 import { GET } from "@/app/api/events/route";
 import { storeConfig } from "@/lib/checkout";
 
-const from = `G${"A".repeat(55)}`;
+import {
+  fixtureAddress as from,
+  fixturePrepared,
+  capabilities,
+} from "./sdk-fixtures";
+import { envelopeHash } from "@/lib/transaction";
 const token = `pfk_${"b".repeat(64)}`;
 const deployment = "11111111-1111-4111-8111-111111111111";
 const mockFetch = vi.fn<typeof fetch>();
 const request = (body: unknown) =>
   new Request("http://localhost/api/pay", {
     method: "POST",
+    headers: { origin: "http://localhost" },
     body: JSON.stringify(body),
   });
 const ok = (data: unknown) => Response.json({ data });
 
 beforeEach(() => {
   mockFetch.mockReset();
+  mockFetch.mockImplementation(async (url) =>
+    String(url).endsWith("/capabilities")
+      ? ok(capabilities)
+      : ok(fixturePrepared),
+  );
   vi.stubGlobal("fetch", mockFetch);
   vi.stubEnv("PAIFLOW_MODE", "team");
   vi.stubEnv("PAIFLOW_BASE_URL", "https://beta.app.paiflow.xyz");
@@ -109,6 +120,7 @@ it("requires a deployment ID alongside the token and never sends the token to th
     ready: true,
     mode: "team",
     deploymentUrl: `https://beta.app.paiflow.xyz/deployments/${deployment}`,
+    scope: `https://beta.app.paiflow.xyz/${deployment}`,
   });
   expect(JSON.stringify(storeConfig())).not.toContain(token);
   vi.stubEnv("PAIFLOW_DEPLOYMENT_ID", "");
@@ -121,16 +133,13 @@ it("requires a deployment ID alongside the token and never sends the token to th
 
 it("prepares a catalog price on the server instead of accepting an arbitrary amount", async () => {
   const prepared = {
-    xdr: "unsigned",
-    network: "testnet",
-    networkPassphrase: "Test SDF Network ; September 2015",
-    expiresAt: "2026-10-03T12:03:00Z",
+    ...fixturePrepared,
+    txHash: envelopeHash(fixturePrepared.xdr),
   };
-  mockFetch.mockResolvedValue(ok(prepared));
   const response = await POST(request({ from, itemId: "snack-combo" }));
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ data: prepared });
-  const [url, options] = mockFetch.mock.calls[0]!;
+  const [url, options] = mockFetch.mock.calls[1]!;
   expect(String(url)).toBe(
     `https://beta.app.paiflow.xyz/api/v1/deployments/${deployment}/execute`,
   );
@@ -138,37 +147,44 @@ it("prepares a catalog price on the server instead of accepting an arbitrary amo
     from,
     amount: "35000000",
   });
-  expect(JSON.stringify(options?.headers)).toContain(token);
+  expect(new Headers(options?.headers).get("authorization")).toBe(
+    `Bearer ${token}`,
+  );
 });
 
 it.each(["PENDING", "FAILED", "SUCCESS"])(
   "retains %s as the payment outcome, including HTTP 200 failures",
   async (status) => {
-    const submitted = { txHash: "a".repeat(64), status };
-    mockFetch.mockResolvedValue(ok(submitted));
-    const response = await POST(request({ signedXdr: "same-envelope" }));
-    expect(await response.json()).toEqual({ data: submitted });
-    expect(String(mockFetch.mock.calls[0]![0])).toContain(
-      "execute/submit?wait=true",
+    const submitted = { txHash: envelopeHash(fixturePrepared.xdr), status };
+    mockFetch.mockImplementation(async (url) =>
+      ok(String(url).endsWith("/capabilities") ? capabilities : submitted),
     );
-    expect(mockFetch.mock.calls[0]![1]?.body).toBe(
-      '{"signedXdr":"same-envelope"}',
+    const response = await POST(request({ signedXdr: fixturePrepared.xdr }));
+    expect(await response.json()).toEqual({ data: submitted });
+    expect(String(mockFetch.mock.calls[1]![0])).toContain(
+      "execute/submit?wait=false",
+    );
+    expect(mockFetch.mock.calls[1]![1]?.body).toBe(
+      JSON.stringify({ signedXdr: fixturePrepared.xdr }),
     );
   },
 );
 
 it("rechecks precisely the same envelope after an uncertain submission error", async () => {
-  mockFetch
-    .mockRejectedValueOnce(new Error("Transport lost"))
-    .mockResolvedValueOnce(ok({ txHash: "a".repeat(64), status: "SUCCESS" }));
-  expect((await POST(request({ signedXdr: "same-envelope" }))).status).toBe(
+  let submits = 0;
+  mockFetch.mockImplementation(async (url) => {
+    if (String(url).endsWith("/capabilities")) return ok(capabilities);
+    if (++submits === 1) throw new Error("Transport lost");
+    return ok({ txHash: envelopeHash(fixturePrepared.xdr), status: "SUCCESS" });
+  });
+  expect((await POST(request({ signedXdr: fixturePrepared.xdr }))).status).toBe(
     502,
   );
-  expect((await POST(request({ signedXdr: "same-envelope" }))).status).toBe(
+  expect((await POST(request({ signedXdr: fixturePrepared.xdr }))).status).toBe(
     200,
   );
-  expect(mockFetch.mock.calls[0]![1]?.body).toBe(
-    mockFetch.mock.calls[1]![1]?.body,
+  expect(mockFetch.mock.calls[1]![1]?.body).toBe(
+    mockFetch.mock.calls[3]![1]?.body,
   );
 });
 
@@ -194,3 +210,28 @@ it.each([undefined, "prepare"])(
     expect(mockFetch).not.toHaveBeenCalled();
   },
 );
+
+it("rejects missing or foreign Origin before contacting the SDK", async () => {
+  for (const origin of [undefined, "https://other.example"]) {
+    const response = await POST(
+      new Request("http://localhost/api/pay", {
+        method: "POST",
+        headers: origin ? { origin } : {},
+        body: JSON.stringify({ from, itemId: "snack-combo" }),
+      }),
+    );
+    expect(response.status).toBe(422);
+  }
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+it("rejects invalid status hashes, oversized requests and malformed preparation metadata before contacting the SDK", async () => {
+  for (const body of [
+    { action: "status", txHash: "bad" },
+    { action: "status", txHash: "a".repeat(64), amount: "1" },
+    { signedXdr: fixturePrepared.xdr, preparationRequestId: 3 },
+    { from, itemId: "snack-combo", padding: "x".repeat(210001) },
+  ])
+    expect((await POST(request(body))).status).toBe(422);
+  expect(mockFetch).not.toHaveBeenCalled();
+});

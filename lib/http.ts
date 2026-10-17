@@ -1,9 +1,21 @@
 import "server-only";
+import { PaiflowApiError } from "@paiflow/sdk";
 import { PaiflowError } from "@/lib/paiflow";
 export async function handle(action: () => Promise<unknown>) {
   try {
     return Response.json({ data: await action() });
   } catch (error) {
+    if (error instanceof PaiflowApiError) {
+      const headers = new Headers();
+      if (error.metadata.retryAfter)
+        headers.set("Retry-After", error.metadata.retryAfter);
+      if (error.metadata.requestId)
+        headers.set("x-request-id", error.metadata.requestId);
+      return Response.json(
+        { error: { code: error.code, message: error.message } },
+        { status: error.status, headers },
+      );
+    }
     if (error instanceof PaiflowError) {
       const headers = new Headers();
       if (error.retryAfter) headers.set("Retry-After", error.retryAfter);
@@ -32,7 +44,7 @@ export async function handle(action: () => Promise<unknown>) {
   }
 }
 export class InputError extends Error {}
-type SignedBody = { signedXdr: string };
+type SignedBody = { signedXdr: string; preparationRequestId?: string };
 type ExecuteBody = { from: string; amount: string };
 type PayoutBody = ExecuteBody & { recipient: string; nodeId?: string };
 export function paymentBody(
@@ -58,13 +70,23 @@ export async function paymentBody(
   const value = body as Record<string, unknown>;
   if ("signedXdr" in value) {
     if (
-      Object.keys(value).length !== 1 ||
+      Object.keys(value).some(
+        (key) => !["signedXdr", "preparationRequestId"].includes(key),
+      ) ||
+      (value.preparationRequestId !== undefined &&
+        (typeof value.preparationRequestId !== "string" ||
+          value.preparationRequestId.length > 200)) ||
       typeof value.signedXdr !== "string" ||
       !value.signedXdr ||
       value.signedXdr.length > 200_000
     )
       throw new InputError("Supply only a signedXdr string.");
-    return { signedXdr: value.signedXdr };
+    return {
+      signedXdr: value.signedXdr,
+      ...(value.preparationRequestId === undefined
+        ? {}
+        : { preparationRequestId: value.preparationRequestId as string }),
+    };
   }
   const keys = payout
     ? ["from", "amount", "recipient", "nodeId"]
@@ -99,4 +121,11 @@ export async function paymentBody(
     };
   }
   return { from: value.from, amount: value.amount };
+}
+
+export function sameOrigin(request: Request) {
+  if (request.headers.get("origin") !== new URL(request.url).origin)
+    throw new InputError(
+      "Use this application's own origin for payment requests.",
+    );
 }

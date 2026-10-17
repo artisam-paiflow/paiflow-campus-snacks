@@ -16,13 +16,24 @@ export function requireStore() {
 export async function checkoutBody(request: Request) {
   let body: unknown;
   try {
-    body = await request.json();
+    const text = await request.text();
+    if (text.length > 210000) throw new InputError("Request too large.");
+    body = JSON.parse(text);
   } catch {
     throw new InputError("Expected JSON.");
   }
   if (!body || typeof body !== "object" || Array.isArray(body))
     throw new InputError("Expected an object.");
   const value = body as Record<string, unknown>;
+  if (value.action === "status") {
+    if (
+      Object.keys(value).length !== 2 ||
+      typeof value.txHash !== "string" ||
+      !/^[a-f0-9]{64}$/.test(value.txHash)
+    )
+      throw new InputError("Supply only a transaction hash for status.");
+    return { txHash: value.txHash };
+  }
   if ("signedXdr" in value)
     return paymentBody(
       new Request(request.url, { method: "POST", body: JSON.stringify(value) }),

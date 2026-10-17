@@ -1,12 +1,14 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { signPrepared, connectWallet, refreshWallet } from "@/lib/wallet";
 import {
+  isConnected,
   getNetworkDetails,
   getAddress,
   requestAccess,
   signTransaction,
 } from "@stellar/freighter-api";
 vi.mock("@stellar/freighter-api", () => ({
+  isConnected: vi.fn(),
   getNetworkDetails: vi.fn(),
   getAddress: vi.fn(),
   requestAccess: vi.fn(),
@@ -18,10 +20,12 @@ const prepared = {
   network: "testnet" as const,
   networkPassphrase: passphrase,
   xdr: "unsigned",
+  txHash: "a".repeat(64),
   expiresAt: new Date(Date.now() + 180_000).toISOString(),
 };
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(isConnected).mockResolvedValue({ isConnected: true });
   vi.mocked(getAddress).mockResolvedValue({ address });
   vi.mocked(requestAccess).mockResolvedValue({ address });
   vi.mocked(getNetworkDetails).mockResolvedValue({
@@ -98,4 +102,28 @@ it("refuses an invalid expiry and unexpected signer", async () => {
   await expect(signPrepared(prepared, address)).rejects.toThrow(
     "different customer",
   );
+});
+
+afterEach(() => vi.useRealTimers());
+it("reports missing Freighter without requesting access", async () => {
+  vi.mocked(isConnected).mockResolvedValue({ isConnected: false });
+  await expect(connectWallet()).rejects.toThrow("Install or enable Freighter");
+  expect(requestAccess).not.toHaveBeenCalled();
+});
+it("bounds a missing extension that never answers its detection request", async () => {
+  vi.useFakeTimers();
+  vi.mocked(isConnected).mockReturnValue(new Promise(() => {}));
+  const pending = expect(connectWallet()).rejects.toThrow(
+    "Install or enable Freighter",
+  );
+  await vi.advanceTimersByTimeAsync(2000);
+  await pending;
+  expect(requestAccess).not.toHaveBeenCalled();
+});
+it("bounds an unanswered access prompt and lets the user retry", async () => {
+  vi.useFakeTimers();
+  vi.mocked(requestAccess).mockReturnValue(new Promise(() => {}));
+  const pending = expect(connectWallet()).rejects.toThrow("Open the extension");
+  await vi.advanceTimersByTimeAsync(60000);
+  await pending;
 });
