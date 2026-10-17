@@ -16,7 +16,7 @@ if (!paths.length)
   throw new Error("Build the app before scanning browser bundles.");
 for (const path of paths) {
   if (
-    /pfk_|PAIFLOW_API_TOKEN|campus-snacks-build-canary/.test(
+    /pfk_|pfd_|PAIFLOW_API_TOKEN|campus-snacks-build-canary/.test(
       await readFile(path, "utf8"),
     )
   )

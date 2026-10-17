@@ -1,18 +1,11 @@
 import "server-only";
-// starter code, not a supported package — edit freely.
-
-export type Prepared = {
-  xdr: string;
-  networkPassphrase: string;
-  network: "testnet" | "mainnet";
-  expiresAt: string;
-};
-export type Submitted = {
-  txHash: string;
-  status: "SUCCESS" | "PENDING" | "FAILED";
-  ledger?: number;
-  error?: { code: string; message: string };
-};
+import { Paiflow } from "@paiflow/sdk";
+import { StrKey } from "@stellar/stellar-sdk";
+import { envelopeHash } from "@/lib/transaction";
+export type { Prepared, Submitted } from "@/lib/types";
+import type { Prepared, Submitted } from "@/lib/types";
+export const USDC_ISSUER =
+  "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 type ApiFailure = {
   code: string;
   message: string;
@@ -33,7 +26,7 @@ type Config = { origin: string; deploymentId: string; token: string };
 export type Mode = "prepare" | "team";
 export type PublicConfig =
   | { mode: "prepare"; deploymentUrl: null }
-  | { mode: "team"; deploymentUrl: string }
+  | { mode: "team"; deploymentUrl: string; scope: string }
   | { mode: "disabled"; deploymentUrl: null; message: string };
 
 function configurationError(message: string): never {
@@ -52,7 +45,11 @@ function origin() {
       process.env.PAIFLOW_BASE_URL || "https://beta.app.paiflow.xyz",
     );
     if (
-      !["http:", "https:"].includes(url.protocol) ||
+      (url.protocol !== "https:" &&
+        !(
+          url.protocol === "http:" &&
+          ["localhost", "127.0.0.1"].includes(url.hostname)
+        )) ||
       url.username ||
       url.password ||
       url.search ||
@@ -72,9 +69,9 @@ function teamConfig(): Config {
     return configurationError(
       "Team mode requires PAIFLOW_API_TOKEN and PAIFLOW_DEPLOYMENT_ID.",
     );
-  if (!/^pfk_[a-f0-9]{64}$/.test(token))
+  if (!/^(pfk|pfd)_[a-f0-9]{64}$/.test(token))
     return configurationError(
-      "Set a valid deployment API token for team mode.",
+      "Set a valid developer or deployment API token for team mode.",
     );
   if (
     !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(
@@ -117,6 +114,7 @@ export function publicConfig(): PublicConfig {
         const config = teamConfig();
         return {
           mode: selected,
+          scope: `${config.origin}/${config.deploymentId}`,
           deploymentUrl: new URL(
             `/deployments/${config.deploymentId}`,
             config.origin,
@@ -134,69 +132,82 @@ export function publicConfig(): PublicConfig {
     throw error;
   }
 }
-async function config(): Promise<Config> {
+function deployment() {
   requireIntegration();
-  return teamConfig();
-}
-async function call<T>(
-  endpoint: string,
-  method: "GET" | "POST",
-  body?: unknown,
-  query?: URLSearchParams,
-): Promise<T> {
-  const { origin, deploymentId, token } = await config();
-  const url = new URL(
-    ["api", "v1", "deployments", deploymentId, endpoint].join("/"),
-    origin + "/",
+  const c = teamConfig();
+  return new Paiflow({ baseUrl: c.origin, token: c.token }).deployment(
+    c.deploymentId,
   );
-  if (query) url.search = query.toString();
-  const response = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const requestId = response.headers.get("x-request-id");
-  const unexpected = `Unexpected Paiflow HTTP ${response.status}${requestId ? ` (x-request-id: ${requestId})` : ""}`;
-  let result: { data: T } | { error: ApiFailure };
-  try {
-    result = await response.json();
-  } catch {
-    throw new PaiflowError(
-      response.ok ? 502 : response.status,
-      { code: "UPSTREAM_RPC", message: unexpected },
-      response.headers.get("Retry-After"),
-      requestId,
-    );
-  }
-  if ("error" in result) {
-    throw new PaiflowError(
-      response.status,
-      result.error,
-      response.headers.get("Retry-After"),
-      requestId,
-    );
-  }
-  if (!response.ok)
-    throw new PaiflowError(
-      response.ok ? 502 : response.status,
-      { code: "UPSTREAM_RPC", message: unexpected },
-      response.headers.get("Retry-After"),
-      requestId,
-    );
-  return result.data;
 }
-export const prepareExecute = (input: { from: string; amount: string }) =>
-  call<Prepared>("execute", "POST", input);
-export const submitExecute = (input: { signedXdr: string }, wait = true) =>
-  call<Submitted>(
-    "execute/submit",
-    "POST",
-    input,
-    new URLSearchParams({ wait: String(wait) }),
+export async function paymentReady() {
+  const d = deployment();
+  const { data } = await d.capabilities.get();
+  const asset = data.inputAsset;
+  const usdc =
+    (asset?.kind === "known" && asset.symbol === "USDC") ||
+    (asset?.kind === "custom" &&
+      asset.code === "USDC" &&
+      asset.issuer === USDC_ISSUER);
+  if (
+    data.network !== "testnet" ||
+    !usdc ||
+    data.triggerType !== "deposit" ||
+    data.operations.execute.status !== "supported"
+  )
+    throw new Error(
+      "Use an active testnet USDC Receive deployment with execute support.",
+    );
+  return d;
+}
+export async function prepareExecute(input: {
+  from: string;
+  amount: string;
+}): Promise<Prepared> {
+  requireIntegration();
+  if (!StrKey.isValidEd25519PublicKey(input.from))
+    throw new Error("Supply a public Stellar account.");
+  const d = await paymentReady();
+  const response = await d.execute.prepare(input);
+  const p = response.data;
+  if (
+    p.network !== "testnet" ||
+    p.networkPassphrase !== "Test SDF Network ; September 2015"
+  )
+    throw new Error("Only Testnet payments are allowed.");
+  return {
+    ...p,
+    txHash: envelopeHash(p.xdr),
+    preparationRequestId: response.metadata.historyRequestId,
+  };
+}
+export async function submitExecute(input: {
+  signedXdr: string;
+  preparationRequestId?: string;
+}): Promise<Submitted> {
+  requireIntegration();
+  const hash = envelopeHash(input.signedXdr);
+  const d = await paymentReady();
+  const { data } = await d.execute.submit(
+    { signedXdr: input.signedXdr },
+    { wait: false, preparationRequestId: input.preparationRequestId },
   );
+  if (data.txHash !== hash)
+    throw new Error(
+      "Transaction hash mismatch. Retain the original envelope and check its status.",
+    );
+  return data;
+}
+export async function paymentStatus(txHash: string) {
+  requireIntegration();
+  if (!/^[a-f0-9]{64}$/.test(txHash))
+    throw new Error("Invalid transaction hash.");
+  const { data } = await deployment().transactions.get(txHash);
+  if (data.txHash !== txHash || data.network !== "testnet")
+    throw new Error(
+      "Transaction evidence mismatch. Retain the original record.",
+    );
+  return data;
+}
 
 export type EventItem = {
   id: string;
@@ -213,50 +224,10 @@ export type EventPage = {
   nextCursor: string | null;
   hasMore: boolean;
 };
-export function listEvents(
+export async function listEvents(
   input: { cursor?: string; limit?: number; txHash?: string } = {},
 ) {
-  const query = new URLSearchParams();
-  if (input.cursor) query.set("cursor", input.cursor);
-  if (input.limit !== undefined) query.set("limit", String(input.limit));
-  if (input.txHash) query.set("txHash", input.txHash);
-  return call<EventPage>("events", "GET", undefined, query);
-}
-
-// One page at a time in your server polling handler:
-// const page = await listEvents({ cursor: savedCursor ?? undefined });
-// savedCursor = page.nextCursor;
-// return page; // browser drains hasMore, then waits before asking again
-
-export const preparePayout = (input: {
-  from: string;
-  amount: string;
-  recipient: string;
-  nodeId?: string;
-}) => call<Prepared & { nodeId: string }>("payouts", "POST", input);
-export const submitPayout = (input: { signedXdr: string }, wait = true) =>
-  call<Submitted>(
-    "payouts/submit",
-    "POST",
-    input,
-    new URLSearchParams({ wait: String(wait) }),
-  );
-
-// Catch PaiflowError in your server handler. For status 409/429, forward status
-// and Retry-After to your UI; wait that many seconds before retrying.
-// Keep a submitted envelope to retry submitPayout while outcome is uncertain.
-
-export const releaseEarly = (input: { nodeId?: string } = {}) =>
-  call<{ nodeId: string; txHash: string; ledger?: number }>(
-    "release-early",
-    "POST",
-    input,
-  );
-// Teams must add their own authorisation before exposing releaseEarly in a server route.
-// This starter deliberately has no release route or button.
-
-export async function getOpenApi(origin: string): Promise<unknown> {
-  const response = await fetch(new URL("/api/v1/openapi.json", origin));
-  if (!response.ok) throw new Error(`OpenAPI HTTP ${response.status}`);
-  return response.json();
+  return deployment()
+    .events.list({ ...input, cursor: input.cursor || undefined })
+    .then((response) => response.data);
 }

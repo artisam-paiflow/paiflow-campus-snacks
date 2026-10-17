@@ -5,6 +5,14 @@ import { MENU, menuItem, priceBreakdown } from "@/lib/menu";
 import type { MenuItemId } from "@/lib/menu";
 import type { EventItem, EventPage, Prepared, Submitted } from "@/lib/paiflow";
 import { connectWallet, refreshWallet, signPrepared } from "@/lib/wallet";
+import { assertOriginal } from "@/lib/transaction";
+import {
+  readRecovery,
+  saveRecovery,
+  terminal,
+  assertNoConflictingRecovery,
+} from "@/lib/recovery";
+import type { Recovery } from "@/lib/recovery";
 import { ContributionJars } from "@/components/contribution-jars";
 import { SnackArt } from "@/components/snack-art";
 
@@ -13,8 +21,8 @@ type Config = {
   deploymentUrl: string | null;
   mode: "prepare" | "team" | "disabled";
   message?: string;
+  scope?: string;
 };
-type Pending = { signedXdr: string; itemId: MenuItemId };
 type Receipt = Submitted & { itemId: MenuItemId };
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
@@ -59,8 +67,10 @@ export function SnackStand({ config }: { config: Config }) {
   const [phase, setPhase] = useState("");
   const [walletBusy, setWalletBusy] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
-  const [pending, setPending] = useState<Pending | null>(null);
+  const [pending, setPending] = useState<Recovery | null>(null);
+  const [blocked, setBlocked] = useState(true);
   const working = useRef(false);
+  const key = config.scope ? `campus-snacks-payment-v2:${config.scope}` : "";
   const busy = !!phase;
   const item = menuItem(selected);
   const split = priceBreakdown(item);
@@ -68,6 +78,37 @@ export function SnackStand({ config }: { config: Config }) {
   const checkoutEvents = receipt
     ? events.filter((event) => event.txHash === receipt.txHash)
     : [];
+
+  useEffect(() => {
+    if (!config.ready || !config.scope) return;
+    try {
+      assertNoConflictingRecovery(localStorage, key);
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const stored = readRecovery(config.scope, raw);
+        setPending(stored);
+        setSelected(stored.itemId);
+        if (stored.status)
+          setReceipt({
+            txHash: stored.prepared.txHash,
+            status: stored.status as Submitted["status"],
+            itemId: stored.itemId,
+          });
+      }
+      setBlocked(false);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Recovery storage unavailable. Preserve it before starting another payment.",
+      );
+    }
+  }, [config.ready, config.scope, key]);
+
+  function save(record: Recovery) {
+    saveRecovery(localStorage, key, record);
+    setPending(record);
+  }
 
   useEffect(() => {
     if (!config.ready) return;
@@ -156,55 +197,143 @@ export function SnackStand({ config }: { config: Config }) {
     }
   }
 
-  async function submit(envelope: Pending) {
-    setPhase("Confirming payment…");
-    const submitted = await request<Submitted>("/api/pay", {
-      signedXdr: envelope.signedXdr,
-    });
-    setReceipt({ ...submitted, itemId: envelope.itemId });
-    if (submitted.status !== "PENDING") setPending(null);
-    if (submitted.status === "FAILED")
-      setError(
-        submitted.error?.message || "Payment failed. No order was confirmed.",
-      );
-  }
-
-  async function pay(retry = false) {
-    if (!config.ready || working.current || walletBusy) return;
+  async function locked(action: (current: Recovery | null) => Promise<void>) {
+    if (
+      !config.ready ||
+      !config.scope ||
+      working.current ||
+      walletBusy ||
+      blocked
+    )
+      return;
     working.current = true;
-    setPhase("Preparing payment…");
+    setPhase("Checking payment…");
     setError("");
     try {
-      if (retry && pending) {
-        await submit(pending);
-        return;
-      }
-      if (pending)
+      if (!navigator.locks)
         throw new Error(
-          "Check the signed payment before starting another order.",
+          "This browser needs Web Locks support for safe payment recovery.",
         );
-      if (!config.ready)
-        throw new Error(
-          "The snack stand needs its own Paiflow deployment first.",
-        );
-      if (!address) throw new Error("Connect your Freighter wallet first.");
-      setReceipt(null);
-      const prepared = await request<Prepared>("/api/pay", {
-        from: address,
-        itemId: selected,
-      });
-      setPhase("Approve in Freighter…");
-      const signedXdr = await signPrepared(prepared, address);
-      const envelope = { signedXdr, itemId: selected };
-      // Retain the same envelope after PENDING, transport failures, or uncertain errors.
-      setPending(envelope);
-      await submit(envelope);
+      await navigator.locks.request(
+        key,
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock)
+            throw new Error(
+              "Another tab is handling this payment. Return to that tab.",
+            );
+          assertNoConflictingRecovery(localStorage, key);
+          const raw = localStorage.getItem(key);
+          const current = raw ? readRecovery(config.scope!, raw) : null;
+          setPending(current);
+          await action(current);
+        },
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Payment failed.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Payment unresolved. Preserve the original record.",
+      );
     } finally {
       working.current = false;
       setPhase("");
     }
+  }
+
+  async function check(current: Recovery) {
+    const result = await request<Submitted>("/api/pay", {
+      action: "status",
+      txHash: current.prepared.txHash,
+    });
+    if (
+      result.txHash !== current.prepared.txHash ||
+      result.network !== "testnet"
+    )
+      throw new Error(
+        "Transaction evidence mismatch. Preserve the original record.",
+      );
+    save({ ...current, status: result.status });
+    setReceipt({ ...result, itemId: current.itemId });
+    if (result.status === "FAILED")
+      setError(
+        result.error?.message || "Payment failed. No order was confirmed.",
+      );
+  }
+
+  async function signAndSubmit(current: Recovery) {
+    if (terminal(current)) return;
+    let next = current;
+    if (!next.signedXdr) {
+      if (address !== next.address)
+        throw new Error(
+          "Connect the original consenting wallet to continue this payment.",
+        );
+      // Persist before the wallet receives the transaction; a cancelled or lost response keeps the same body.
+      next = { ...next, signing: true };
+      save(next);
+      setPhase("Approve in Freighter…");
+      const signedXdr = await signPrepared(next.prepared, next.address);
+      assertOriginal(next.prepared.xdr, signedXdr, next.prepared.txHash);
+      next = { ...next, signing: false, signedXdr };
+      save(next);
+    }
+    assertOriginal(next.prepared.xdr, next.signedXdr!, next.prepared.txHash);
+    next = { ...next, attempted: true };
+    save(next);
+    setPhase("Confirming payment…");
+    const submitted = await request<Submitted>("/api/pay", {
+      signedXdr: next.signedXdr,
+      preparationRequestId: next.prepared.preparationRequestId,
+    });
+    if (submitted.txHash !== next.prepared.txHash)
+      throw new Error(
+        "Submission hash mismatch. Check the original transaction.",
+      );
+    // Confirm original hash independently. Even a failed submit response is not replacement permission.
+    await check(next);
+  }
+
+  async function pay(retry = false) {
+    await locked(async (current) => {
+      if (retry && current) {
+        await signAndSubmit(current);
+        return;
+      }
+      if (current)
+        throw new Error(
+          "Resolve and acknowledge the original payment before starting another order.",
+        );
+      if (!address) throw new Error("Connect your Freighter wallet first.");
+      setReceipt(null);
+      setPhase("Preparing payment…");
+      const prepared = await request<Prepared>("/api/pay", {
+        from: address,
+        itemId: selected,
+      });
+      const next: Recovery = {
+        version: 2,
+        scope: config.scope!,
+        address,
+        itemId: selected,
+        prepared,
+      };
+      save(next);
+      await signAndSubmit(next);
+    });
+  }
+
+  async function acknowledge() {
+    await locked(async (current) => {
+      if (!current || !terminal(current))
+        throw new Error(
+          "Check final SUCCESS or FAILED before clearing this record.",
+        );
+      localStorage.removeItem(key);
+      if (localStorage.getItem(key) !== null)
+        throw new Error("Could not clear stored evidence.");
+      setPending(null);
+    });
   }
 
   return (
@@ -370,7 +499,12 @@ export function SnackStand({ config }: { config: Config }) {
           <button
             className="buy-button"
             disabled={
-              busy || walletBusy || !!pending || !address || !config.ready
+              busy ||
+              walletBusy ||
+              !!pending ||
+              !address ||
+              !config.ready ||
+              blocked
             }
             onClick={() => void pay()}
           >
@@ -389,17 +523,63 @@ export function SnackStand({ config }: { config: Config }) {
           )}
           {pending && (
             <div className="pending-note" role="status">
-              <strong>Payment still being checked.</strong>
+              <strong>
+                {terminal(pending)
+                  ? "Original payment resolved."
+                  : "Original payment saved."}
+              </strong>
               <p>
-                Keep this tab open. Your signed payment may already have been
-                sent.
+                Your browser retains this payment across reloads. Keep its
+                storage until resolved. Expiry or missing history does not mean
+                it failed.
               </p>
-              <button
-                disabled={!config.ready || busy}
-                onClick={() => void pay(true)}
+              <a
+                href={explorer(pending.prepared.txHash)}
+                target="_blank"
+                rel="noreferrer"
               >
-                {busy ? "Checking…" : "Check again"}
-              </button>
+                View original transaction ↗
+              </a>
+              <p>Status: {pending.status || "Not checked"}</p>
+              <button
+                disabled={!config.ready || busy || blocked}
+                onClick={() =>
+                  void locked(async (current) => {
+                    if (current) await check(current);
+                  })
+                }
+              >
+                Check original transaction
+              </button>{" "}
+              {terminal(pending) ? (
+                <button
+                  disabled={busy || blocked}
+                  onClick={() => void acknowledge()}
+                >
+                  Acknowledge result and start another order
+                </button>
+              ) : (
+                <button
+                  disabled={
+                    !config.ready ||
+                    busy ||
+                    blocked ||
+                    walletBusy ||
+                    (!pending.signedXdr && address !== pending.address)
+                  }
+                  onClick={() => void pay(true)}
+                >
+                  {busy
+                    ? "Checking…"
+                    : pending.signedXdr
+                      ? "Retry exact saved payment"
+                      : "Sign original payment"}
+                </button>
+              )}
+              <p className="checkout-note">
+                No goods are fulfilled by this demo. Check recipient payouts
+                separately in the activity below.
+              </p>
             </div>
           )}
           {receipt && (
@@ -536,7 +716,11 @@ export function SnackStand({ config }: { config: Config }) {
         </span>
         <span>
           Powered by{" "}
-          <a href="https://beta.app.paiflow.xyz" target="_blank" rel="noreferrer">
+          <a
+            href="https://beta.app.paiflow.xyz"
+            target="_blank"
+            rel="noreferrer"
+          >
             Paiflow
           </a>
         </span>
