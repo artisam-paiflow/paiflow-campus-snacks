@@ -35,6 +35,13 @@ Organiser-provided fallback wallets are testnet-only; organisers retain copies o
 
 Requires **Node >=22.22.2 <23** and **pnpm 10.4.1**. Use this sample's setup below for its USDC deployment; the [SDK payment example](https://github.com/artisam-paiflow/paiflow-hackathon-starter) is the minimal native-XLM integration reference.
 
+Payment requests must come from this application's own browser origin. Railway
+uses its server-provided `RAILWAY_PUBLIC_DOMAIN` automatically. For a custom domain
+or another reverse proxy, set server-only `APP_ORIGIN` to the public origin (for
+example, `https://snacks.example.com`) and restart. This is your snack app's origin,
+separate from the upstream `PAIFLOW_BASE_URL`. Local development defaults to the
+request origin; forwarded headers never choose the trusted origin.
+
 ```bash
 git clone https://github.com/artisam-paiflow/paiflow-campus-snacks.git
 cd paiflow-campus-snacks
