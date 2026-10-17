@@ -1,6 +1,6 @@
 # Campus Snacks
 
-A small hackathon sample built **from the [Paiflow starter template](https://github.com/artisam-paiflow/paiflow-hackathon-starter)**, using the same setup and integration path as participants.
+A small hackathon sample for a campus snack shop, showing how an app can use Paiflow for its payment rules.
 
 Pick one of three snacks, connect Freighter, and pay testnet USDC. The sample represents one branch of a snack shop. One Paiflow deployment serves all customers of that branch and routes **90% to the campus vendor and 10% to the student organisation**. The app shows a split preview, a confirmed-payment receipt, and two live coin jars showing cumulative contributions to the vendor and student organisation.
 
@@ -14,12 +14,12 @@ The unconfigured sample lets you browse the menu; payments unlock after setup.
 
 ## Choose the right resource
 
-| Resource                                                                                                 | Use it for                                                                                                                             |
-| -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| [Paiflow Guide](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/hackathon/paiflow-guide.md) | Wallet setup, building and deploying a flow, and configuring the ready-wired starter.                                                  |
-| [SDK README](https://github.com/artisam-paiflow/paiflow/blob/develop/packages/sdk/README.md)             | Typed Node integration, examples, errors and transaction recovery for the published beta. The starter/sample uses its own HTTP client. |
-| [HTTP API README](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/api/README.md)            | Endpoint schemas, signing, errors, recovery and advanced workflows; includes OpenAPI and Postman links.                 |
-| [AI developer context](llms.md)                                                                          | Product constraints, API details and worked examples for your AI assistant.                                                            |
+| Resource                                                                                                 | Use it for                                                                                              |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| [Paiflow Guide](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/hackathon/paiflow-guide.md) | Wallet setup, building and deploying a flow, then integrating an app with the SDK.                      |
+| [SDK README](https://github.com/artisam-paiflow/paiflow/blob/develop/packages/sdk/README.md)             | Typed Node integration, examples, errors and transaction recovery for the published beta.               |
+| [HTTP API README](https://github.com/artisam-paiflow/paiflow/blob/develop/docs/api/README.md)            | Endpoint schemas, signing, errors, recovery and advanced workflows; includes OpenAPI and Postman links. |
+| [AI developer context](llms.md)                                                                          | Product constraints, API details and worked examples for your AI assistant.                             |
 
 Distribute only the event-specific primer and the Paiflow Guide as PDFs. The guide is event-neutral; follow your primer for event rules, registration, submission and support. Detailed SDK/API references remain on GitHub.
 
@@ -33,7 +33,7 @@ Organiser-provided fallback wallets are testnet-only; organisers retain copies o
 
 ## Run locally
 
-Requires **Node 22** and **pnpm 10**. No additional dependencies were added to the starter.
+Requires **Node 22** and **pnpm 10**. Use this sample's setup below for its USDC deployment; the [SDK payment example](https://github.com/artisam-paiflow/paiflow-hackathon-starter) is the minimal native-XLM integration reference.
 
 ```bash
 git clone https://github.com/artisam-paiflow/paiflow-campus-snacks.git
@@ -44,7 +44,7 @@ cp .env.example .env.local
 pnpm dev
 ```
 
-Open http://localhost:3000. The app defaults to preparation mode, including when credentials are present. Wallet actions, payments and event polling stay disabled until you explicitly select team mode and configure the stand below. Direct payment/event requests return HTTP 403 `PREPARATION_MODE`; the server makes no upstream calls. This sample deliberately does not use the starter's shared XLM swap demo, which would send funds through a different flow.
+Open http://localhost:3000. The app defaults to preparation mode, including when credentials are present. Wallet actions, payments and event polling stay disabled until you explicitly select team mode and configure the stand below. Direct payment/event requests return HTTP 403 `PREPARATION_MODE`; the server makes no upstream calls. Configure this stand's own USDC deployment before making payments.
 
 ## Set up the stand in Paiflow
 
@@ -77,7 +77,7 @@ Open http://localhost:3000. The app defaults to preparation mode, including when
 
 **Testnet USDC funding:** after funding the wallet with XLM and adding the exact USDC trustline, open [Circle's testnet faucet](https://faucet.circle.com/), select **USDC** and **Stellar Testnet**, and enter the customer's public wallet address (`G…`). Confirm the USDC balance before testing payments. Repeat for any wallet that will fund a flow, and choose test amounts that fit the available balance. Friendbot supplies XLM, not USDC.
 
-The app's 90/10 display is a preview of this required flow setup. The sample cannot inspect your graph through the starter API: configuring a different deployment changes where money actually goes. Review the deployed recipients and shares, then rehearse the payout. API simulation checks account and trustline readiness before signing.
+The app's 90/10 display is a preview of this required flow setup. The sample cannot inspect your graph through the deployment API: configuring a different deployment changes where money actually goes. Review the deployed recipients and shares, then rehearse the payout. API simulation checks account and trustline readiness before signing.
 
 ## Rehearse the demo
 
@@ -95,7 +95,7 @@ If confirmation is pending or the server/network returns an uncertain error, kee
 
 A real end-to-end wallet/payout rehearsal is still required after configuring the deployment. Automated tests use mocked Paiflow responses and do not establish that a live deployment is funded or ready.
 
-## What changed from the template
+## Sample structure
 
 - `app/page.tsx`: resolves only non-secret setup state on the server.
 - `components/snack-stand.tsx`: menu, checkout, receipt, and expandable cursor-based transaction history; no bearer token in browser calls.
@@ -103,12 +103,12 @@ A real end-to-end wallet/payout rehearsal is still required after configuring th
 - `public/snack-logo.svg`: shared cheese-bread header logo and tab icon, configured in `app/layout.tsx`.
 - `lib/menu.ts`: three menu items, exact stroop prices and split arithmetic using bigint. Edit this to change the menu.
 - `lib/checkout.ts` and `app/api/pay/route.ts`: accept `{ from, itemId }`; calculate the price on the server. Reject client-supplied prices, recipient overrides and unknown fields. Signed submission still uses `{ signedXdr }`.
-- `lib/paiflow.ts`, `lib/wallet.ts`, and `lib/amount.ts`: retain the starter's integration, mainnet refusal, and amount helpers. Paiflow calls stay in the server-only typed client; Freighter signs in the browser.
-- Removed the starter's public `/api/payout` proxy. The stand uses fixed contract recipients and exposes no early-release route.
+- `lib/paiflow.ts`, `lib/wallet.ts`, and `lib/amount.ts`: provide the server-side integration, mainnet refusal and amount helpers. Paiflow calls stay in the server-only typed client; Freighter signs in the browser.
+- The stand uses fixed contract recipients and exposes no payout proxy or early-release route.
 
 This is checkout plumbing for a hackathon, with no auth, stock or fulfilment system. The selected snack is not stored in the contract or a persistent order record. Server-calculated preparation prices do not make the UI receipt an authorisation to deliver real goods. Add verified order-to-transaction binding and your own app authorisation before extending it into a real store.
 
-Read [llms.md](llms.md) for the participant API context and [the Paiflow OpenAPI document](https://beta.app.paiflow.xyz/api/v1/openapi.json) for endpoint details.
+Read [llms.md](llms.md) for shared Paiflow SDK and product context and [the Paiflow OpenAPI document](https://beta.app.paiflow.xyz/api/v1/openapi.json) for endpoint details.
 
 ## Checks
 
