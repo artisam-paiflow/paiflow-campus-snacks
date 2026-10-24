@@ -12,6 +12,9 @@ import {
   saveRecovery,
   terminal,
   assertNoConflictingRecovery,
+  finishRecovery,
+  readReceipt,
+  receiptKey,
 } from "@/lib/recovery";
 import type { Recovery } from "@/lib/recovery";
 import { assertOriginal, envelopeHash } from "@/lib/transaction";
@@ -108,4 +111,92 @@ it("rejects invalid saved menu selections and network corruption without clearin
   ).toThrow();
   for (const status of ["UNKNOWN", "REJECTED", "PENDING", undefined])
     expect(terminal({ ...record, status })).toBe(false);
+});
+
+it("stores and verifies a final receipt before releasing the active checkout", () => {
+  const values = new Map([["active", JSON.stringify(record)]]);
+  const storage = {
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => {
+      expect(readReceipt(values.get(receiptKey(record.scope))!)).toMatchObject({
+        txHash: hash,
+        network: "testnet",
+        status: "SUCCESS",
+        itemId: "snack-combo",
+      });
+      values.delete(key);
+    },
+  };
+  const receipt = finishRecovery(storage, "active", record, {
+    txHash: hash,
+    network: "testnet",
+    status: "SUCCESS",
+    ledger: 123,
+  });
+  expect(values.has("active")).toBe(false);
+  expect(readReceipt(values.get(receiptKey(record.scope))!)).toEqual(receipt);
+  expect(values.get(receiptKey(record.scope))).not.toMatch(
+    /signedXdr|prepared|address/,
+  );
+});
+
+it("unresolved or mismatched status cannot archive or remove recovery", () => {
+  const values = new Map([["active", JSON.stringify(record)]]);
+  const storage = {
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+  };
+  for (const status of ["UNKNOWN", "REJECTED", "PENDING"] as const)
+    expect(() =>
+      finishRecovery(storage, "active", record, {
+        txHash: hash,
+        network: "testnet",
+        status,
+      }),
+    ).toThrow("unresolved");
+  expect(() =>
+    finishRecovery(storage, "active", record, {
+      txHash: "b".repeat(64),
+      network: "testnet",
+      status: "SUCCESS",
+    }),
+  ).toThrow("mismatch");
+  expect(values.size).toBe(1);
+  expect(values.get("active")).toBe(JSON.stringify(record));
+});
+
+it("a failed receipt write or failed cleanup cannot silently release checkout", () => {
+  const values = new Map([["active", JSON.stringify(record)]]);
+  const storage = {
+    setItem: (_key: string, _value: string) => {},
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+  };
+  const result = {
+    txHash: hash,
+    network: "testnet" as const,
+    status: "FAILED" as const,
+  };
+  expect(() => finishRecovery(storage, "active", record, result)).toThrow(
+    "save the final receipt",
+  );
+  expect(values.has("active")).toBe(true);
+  storage.setItem = (key, value) => {
+    values.set(key, value);
+  };
+  storage.removeItem = () => {};
+  expect(() => finishRecovery(storage, "active", record, result)).toThrow(
+    "release the resolved payment",
+  );
+  expect(values.has("active")).toBe(true);
 });

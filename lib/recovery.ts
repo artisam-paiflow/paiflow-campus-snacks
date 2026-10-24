@@ -2,7 +2,63 @@ import { assertOriginal, envelopeHash } from "@/lib/transaction";
 import { menuItem } from "@/lib/menu";
 import type { MenuItemId } from "@/lib/menu";
 import { TESTNET } from "@/lib/types";
-import type { Prepared } from "@/lib/types";
+import type { Prepared, Submitted } from "@/lib/types";
+import { assertStatus } from "@/lib/confirmation";
+export type PaymentReceipt = Submitted & { itemId: MenuItemId };
+
+export const receiptKey = (scope: string) =>
+  `campus-snacks-receipt-v1:${scope}`;
+
+export function readReceipt(raw: string | null): PaymentReceipt | null {
+  if (!raw) return null;
+  const receipt = JSON.parse(raw) as PaymentReceipt;
+  if (
+    !receipt ||
+    !/^[a-f0-9]{64}$/.test(receipt.txHash) ||
+    receipt.network !== "testnet" ||
+    !["SUCCESS", "FAILED"].includes(receipt.status)
+  )
+    throw new Error(
+      "Saved receipt is invalid. Preserve browser storage for support.",
+    );
+  menuItem(receipt.itemId);
+  return receipt;
+}
+
+/** Called under the checkout Web Lock after an independent original-hash lookup. */
+export function finishRecovery(
+  storage: Pick<Storage, "setItem" | "getItem" | "removeItem">,
+  key: string,
+  current: Recovery,
+  result: Submitted,
+): PaymentReceipt {
+  assertStatus(result, current.prepared.txHash);
+  if (result.status !== "SUCCESS" && result.status !== "FAILED")
+    throw new Error(
+      "Payment remains unresolved. Retain its original evidence.",
+    );
+  const receipt: PaymentReceipt = {
+    txHash: result.txHash,
+    network: "testnet",
+    status: result.status,
+    itemId: current.itemId,
+    ...(result.ledger === undefined ? {} : { ledger: result.ledger }),
+  };
+  // Save a non-sensitive final receipt before releasing the active checkout.
+  const raw = JSON.stringify(receipt);
+  const archiveKey = receiptKey(current.scope);
+  storage.setItem(archiveKey, raw);
+  if (storage.getItem(archiveKey) !== raw)
+    throw new Error(
+      "Could not save the final receipt. Original payment retained.",
+    );
+  storage.removeItem(key);
+  if (storage.getItem(key) !== null)
+    throw new Error(
+      "Could not release the resolved payment. Original evidence retained.",
+    );
+  return receipt;
+}
 export type Recovery = {
   version: 2;
   itemId: MenuItemId;

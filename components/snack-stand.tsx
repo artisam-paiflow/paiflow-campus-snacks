@@ -11,10 +11,19 @@ import {
   saveRecovery,
   terminal,
   assertNoConflictingRecovery,
+  finishRecovery,
+  readReceipt,
+  receiptKey,
 } from "@/lib/recovery";
-import type { Recovery } from "@/lib/recovery";
+import type { Recovery, PaymentReceipt } from "@/lib/recovery";
 import { ContributionJars } from "@/components/contribution-jars";
 import { SnackArt } from "@/components/snack-art";
+import { browserRequest as request } from "@/lib/browser-api";
+import {
+  confirmOriginal,
+  CONFIRMATION_PENDING,
+  CONFIRMATION_UNRESOLVED,
+} from "@/lib/confirmation";
 
 type Config = {
   ready: boolean;
@@ -23,35 +32,12 @@ type Config = {
   message?: string;
   scope?: string;
 };
-type Receipt = Submitted & { itemId: MenuItemId };
-
-async function request<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(
-    path,
-    body === undefined
-      ? undefined
-      : {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-  );
-  const id = response.headers.get("x-request-id");
-  const retry = response.headers.get("Retry-After");
-  let result: { data: T; error?: { code: string; message: string } };
-  try {
-    result = await response.json();
-  } catch {
-    throw new Error(
-      `HTTP ${response.status}${id ? ` · Request ID: ${id}` : ""}. If submitted, check again.`,
-    );
-  }
-  if (!response.ok || result.error)
-    throw new Error(
-      `${result.error?.message || "Request failed"}${id ? ` · Request ID: ${id}` : ""}${retry ? ` · Retry after ${retry} seconds` : ""}`,
-    );
-  return result.data;
-}
+type Operation = {
+  signal: AbortSignal;
+  valid: () => boolean;
+  save: (record: Recovery) => void;
+  phase: (message: string) => void;
+};
 
 const explorer = (hash: string) =>
   `https://stellar.expert/explorer/testnet/tx/${encodeURIComponent(hash)}`;
@@ -66,11 +52,16 @@ export function SnackStand({ config }: { config: Config }) {
   const [feedLoaded, setFeedLoaded] = useState(false);
   const [phase, setPhase] = useState("");
   const [walletBusy, setWalletBusy] = useState(false);
-  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [receipt, setReceipt] = useState<PaymentReceipt | null>(null);
   const [pending, setPending] = useState<Recovery | null>(null);
   const [blocked, setBlocked] = useState(true);
-  const working = useRef(false);
+  const active = useRef<AbortController | null>(null);
+  const resumed = useRef(new Set<string>());
+  const [confirming, setConfirming] = useState(false);
   const key = config.scope ? `campus-snacks-payment-v2:${config.scope}` : "";
+  const scopeKey = useRef(key);
+  scopeKey.current = key;
+  const loadedKey = useRef<string | null>(null);
   const busy = !!phase;
   const item = menuItem(selected);
   const split = priceBreakdown(item);
@@ -80,21 +71,27 @@ export function SnackStand({ config }: { config: Config }) {
     : [];
 
   useEffect(() => {
+    loadedKey.current = null;
+    active.current?.abort();
+    active.current = null;
+    resumed.current.clear();
+    setBlocked(true);
+    setPending(null);
+    setReceipt(null);
+    setPhase("");
+    setConfirming(false);
+    setError("");
     if (!config.ready || !config.scope) return;
     try {
       assertNoConflictingRecovery(localStorage, key);
+      setReceipt(readReceipt(localStorage.getItem(receiptKey(config.scope))));
       const raw = localStorage.getItem(key);
       if (raw) {
         const stored = readRecovery(config.scope, raw);
         setPending(stored);
         setSelected(stored.itemId);
-        if (stored.status)
-          setReceipt({
-            txHash: stored.prepared.txHash,
-            status: stored.status as Submitted["status"],
-            itemId: stored.itemId,
-          });
       }
+      loadedKey.current = key;
       setBlocked(false);
     } catch (cause) {
       setError(
@@ -103,12 +100,11 @@ export function SnackStand({ config }: { config: Config }) {
           : "Recovery storage unavailable. Preserve it before starting another payment.",
       );
     }
+    return () => {
+      loadedKey.current = null;
+      active.current?.abort();
+    };
   }, [config.ready, config.scope, key]);
-
-  function save(record: Recovery) {
-    saveRecovery(localStorage, key, record);
-    setPending(record);
-  }
 
   useEffect(() => {
     if (!config.ready) return;
@@ -185,7 +181,7 @@ export function SnackStand({ config }: { config: Config }) {
   }, [config.ready]);
 
   async function wallet(connect: boolean) {
-    if (!config.ready || walletBusy || working.current) return;
+    if (!config.ready || walletBusy || active.current) return;
     setWalletBusy(true);
     try {
       setAddress(await (connect ? connectWallet() : refreshWallet()));
@@ -197,16 +193,39 @@ export function SnackStand({ config }: { config: Config }) {
     }
   }
 
-  async function locked(action: (current: Recovery | null) => Promise<void>) {
+  async function locked(
+    action: (current: Recovery | null, op: Operation) => Promise<void>,
+  ) {
     if (
       !config.ready ||
       !config.scope ||
-      working.current ||
+      active.current ||
       walletBusy ||
-      blocked
+      blocked ||
+      loadedKey.current !== key
     )
       return;
-    working.current = true;
+    const controller = new AbortController();
+    active.current = controller;
+    const valid = () =>
+      !controller.signal.aborted &&
+      scopeKey.current === key &&
+      loadedKey.current === key;
+    const op: Operation = {
+      signal: controller.signal,
+      valid,
+      save: (record) => {
+        if (!valid())
+          throw new DOMException("Operation cancelled", "AbortError");
+        if (record.scope !== config.scope)
+          throw new Error("Payment scope mismatch.");
+        saveRecovery(localStorage, key, record);
+        setPending(record);
+      },
+      phase: (text) => {
+        if (valid()) setPhase(text);
+      },
+    };
     setPhase("Checking payment…");
     setError("");
     try {
@@ -218,6 +237,7 @@ export function SnackStand({ config }: { config: Config }) {
         key,
         { ifAvailable: true },
         async (lock) => {
+          if (!valid()) return;
           if (!lock)
             throw new Error(
               "Another tab is handling this payment. Return to that tab.",
@@ -226,91 +246,147 @@ export function SnackStand({ config }: { config: Config }) {
           const raw = localStorage.getItem(key);
           const current = raw ? readRecovery(config.scope!, raw) : null;
           setPending(current);
-          await action(current);
+          await action(current, op);
         },
       );
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Payment unresolved. Preserve the original record.",
-      );
+      if (valid())
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Payment unresolved. Preserve the original record.",
+        );
     } finally {
-      working.current = false;
-      setPhase("");
+      if (active.current === controller) {
+        active.current = null;
+        if (scopeKey.current === key && loadedKey.current === key) {
+          setPhase("");
+          setConfirming(false);
+        }
+      }
     }
   }
 
-  async function check(current: Recovery) {
-    const result = await request<Submitted>("/api/pay", {
-      action: "status",
+  async function check(current: Recovery, op: Operation) {
+    if (!op.valid()) return;
+    resumed.current.add(`${key}:${current.prepared.txHash}`);
+    setConfirming(true);
+    op.phase(CONFIRMATION_PENDING);
+    const outcome = await confirmOriginal({
       txHash: current.prepared.txHash,
+      signal: op.signal,
+      lookup: (signal, remainingMs) =>
+        request<Submitted>(
+          "/api/pay",
+          { action: "status", txHash: current.prepared.txHash },
+          signal,
+          remainingMs,
+        ),
+      onResult: (result) => {
+        // The confirmation helper validates the original hash, network and status.
+        op.save({ ...current, status: result.status });
+        if (result.status === "SUCCESS" || result.status === "FAILED") {
+          const finalReceipt = finishRecovery(
+            localStorage,
+            key,
+            current,
+            result,
+          );
+          setReceipt(finalReceipt);
+          setPending(null);
+          setError(
+            result.status === "FAILED"
+              ? result.error?.message ||
+                  "Payment failed. No order was confirmed."
+              : "",
+          );
+        } else {
+          setReceipt({ ...result, itemId: current.itemId });
+        }
+      },
     });
-    if (
-      result.txHash !== current.prepared.txHash ||
-      result.network !== "testnet"
-    )
-      throw new Error(
-        "Transaction evidence mismatch. Preserve the original record.",
-      );
-    save({ ...current, status: result.status });
-    setReceipt({ ...result, itemId: current.itemId });
-    if (result.status === "FAILED")
-      setError(
-        result.error?.message || "Payment failed. No order was confirmed.",
-      );
+    if (op.valid() && (outcome === "unresolved" || outcome === "rejected"))
+      setError(CONFIRMATION_UNRESOLVED);
   }
 
-  async function signAndSubmit(current: Recovery) {
-    if (terminal(current)) return;
+  useEffect(() => {
+    if (
+      blocked ||
+      busy ||
+      walletBusy ||
+      !pending ||
+      (!pending.attempted && !terminal(pending))
+    )
+      return;
+    const identity = `${key}:${pending.prepared.txHash}`;
+    if (resumed.current.has(identity)) return;
+    resumed.current.add(identity);
+    void locked(async (current, op) => {
+      if (current && (current.attempted || terminal(current)))
+        await check(current, op);
+    });
+  }, [key, blocked, busy, walletBusy, pending]);
+
+  async function signAndSubmit(current: Recovery, op: Operation) {
+    if (terminal(current)) {
+      await check(current, op);
+      return;
+    }
     let next = current;
     if (!next.signedXdr) {
       if (address !== next.address)
         throw new Error(
           "Connect the original consenting wallet to continue this payment.",
         );
-      // Persist before the wallet receives the transaction; a cancelled or lost response keeps the same body.
       next = { ...next, signing: true };
-      save(next);
-      setPhase("Approve in Freighter…");
+      op.save(next);
+      op.phase("Approve in Freighter…");
       const signedXdr = await signPrepared(next.prepared, next.address);
       assertOriginal(next.prepared.xdr, signedXdr, next.prepared.txHash);
       next = { ...next, signing: false, signedXdr };
-      save(next);
+      op.save(next);
     }
     assertOriginal(next.prepared.xdr, next.signedXdr!, next.prepared.txHash);
     next = { ...next, attempted: true };
-    save(next);
-    setPhase("Confirming payment…");
-    const submitted = await request<Submitted>("/api/pay", {
-      signedXdr: next.signedXdr,
-      preparationRequestId: next.prepared.preparationRequestId,
-    });
-    if (submitted.txHash !== next.prepared.txHash)
-      throw new Error(
-        "Submission hash mismatch. Check the original transaction.",
+    op.save(next);
+    op.phase("Submitting payment…");
+    try {
+      const submitted = await request<Submitted>(
+        "/api/pay",
+        {
+          signedXdr: next.signedXdr,
+          preparationRequestId: next.prepared.preparationRequestId,
+        },
+        op.signal,
       );
-    // Confirm original hash independently. Even a failed submit response is not replacement permission.
-    await check(next);
+      if (submitted.txHash !== next.prepared.txHash)
+        throw new Error(
+          "Submission hash mismatch. Check the original transaction.",
+        );
+    } catch {
+      // A lost acknowledgement never proves failure. Only look up the saved hash.
+    }
+    if (op.valid()) await check(next, op);
   }
 
   async function pay(retry = false) {
-    await locked(async (current) => {
+    await locked(async (current, op) => {
       if (retry && current) {
-        await signAndSubmit(current);
+        await signAndSubmit(current, op);
         return;
       }
       if (current)
         throw new Error(
-          "Resolve and acknowledge the original payment before starting another order.",
+          "Resolve the original payment before starting another order.",
         );
       if (!address) throw new Error("Connect your Freighter wallet first.");
       setReceipt(null);
-      setPhase("Preparing payment…");
-      const prepared = await request<Prepared>("/api/pay", {
-        from: address,
-        itemId: selected,
-      });
+      op.phase("Preparing payment…");
+      const prepared = await request<Prepared>(
+        "/api/pay",
+        { from: address, itemId: selected },
+        op.signal,
+      );
       const next: Recovery = {
         version: 2,
         scope: config.scope!,
@@ -318,21 +394,8 @@ export function SnackStand({ config }: { config: Config }) {
         itemId: selected,
         prepared,
       };
-      save(next);
-      await signAndSubmit(next);
-    });
-  }
-
-  async function acknowledge() {
-    await locked(async (current) => {
-      if (!current || !terminal(current))
-        throw new Error(
-          "Check final SUCCESS or FAILED before clearing this record.",
-        );
-      localStorage.removeItem(key);
-      if (localStorage.getItem(key) !== null)
-        throw new Error("Could not clear stored evidence.");
-      setPending(null);
+      op.save(next);
+      await signAndSubmit(next, op);
     });
   }
 
@@ -544,21 +607,14 @@ export function SnackStand({ config }: { config: Config }) {
               <button
                 disabled={!config.ready || busy || blocked}
                 onClick={() =>
-                  void locked(async (current) => {
-                    if (current) await check(current);
+                  void locked(async (current, op) => {
+                    if (current) await check(current, op);
                   })
                 }
               >
                 Check original transaction
               </button>{" "}
-              {terminal(pending) ? (
-                <button
-                  disabled={busy || blocked}
-                  onClick={() => void acknowledge()}
-                >
-                  Acknowledge result and start another order
-                </button>
-              ) : (
+              {!terminal(pending) && (
                 <button
                   disabled={
                     !config.ready ||
@@ -569,11 +625,14 @@ export function SnackStand({ config }: { config: Config }) {
                   }
                   onClick={() => void pay(true)}
                 >
-                  {busy
-                    ? "Checking…"
-                    : pending.signedXdr
-                      ? "Retry exact saved payment"
-                      : "Sign original payment"}
+                  {pending.signedXdr
+                    ? "Retry exact saved payment"
+                    : "Sign original payment"}
+                </button>
+              )}
+              {confirming && (
+                <button onClick={() => active.current?.abort()}>
+                  Stop checking
                 </button>
               )}
               <p className="checkout-note">
